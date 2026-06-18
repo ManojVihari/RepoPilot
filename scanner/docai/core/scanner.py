@@ -69,7 +69,7 @@ class Scanner:
 
     #     except subprocess.CalledProcessError as e:
     #         raise Exception(e.output.decode())
-    def get_changed_files(self, repo_path,commit):
+    def get_changed_files(self, repo_path, commit):
         try:
             result = subprocess.check_output(
                 ["git", "ls-files"],
@@ -79,10 +79,17 @@ class Scanner:
     
             files = result.decode().splitlines()
     
-            return [
+            print(f"Found {len(files)} git tracked files")
+            print(files[:20])
+    
+            filtered = [
                 f for f in files
                 if f.endswith((".py", ".java"))
             ]
+    
+            print(f"Found {len(filtered)} source files")
+    
+            return filtered
     
         except subprocess.CalledProcessError as e:
             raise Exception(e.output.decode())
