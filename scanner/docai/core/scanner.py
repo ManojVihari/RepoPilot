@@ -70,22 +70,22 @@ class Scanner:
     #     except subprocess.CalledProcessError as e:
     #         raise Exception(e.output.decode())
     def get_changed_files(self, repo_path,commit):
-    try:
-        result = subprocess.check_output(
-            ["git", "ls-files"],
-            cwd=repo_path,
-            stderr=subprocess.STDOUT
-        )
-
-        files = result.decode().splitlines()
-
-        return [
-            f for f in files
-            if f.endswith((".py", ".java"))
-        ]
-
-    except subprocess.CalledProcessError as e:
-        raise Exception(e.output.decode())
+        try:
+            result = subprocess.check_output(
+                ["git", "ls-files"],
+                cwd=repo_path,
+                stderr=subprocess.STDOUT
+            )
+    
+            files = result.decode().splitlines()
+    
+            return [
+                f for f in files
+                if f.endswith((".py", ".java"))
+            ]
+    
+        except subprocess.CalledProcessError as e:
+            raise Exception(e.output.decode())
 
     def _empty_result(self, repo_path, commit):
         return {
