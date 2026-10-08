@@ -44,8 +44,41 @@ def parse_args():
     return parser.parse_args()
 
 
+# import name -> pip package, for a clear message before anything runs
+REQUIREMENTS = {
+    "tree_sitter": "tree-sitter>=0.25",
+    "tree_sitter_java": "tree-sitter-java",
+    "tree_sitter_python": "tree-sitter-python",
+    "yaml": "pyyaml",
+    "requests": "requests",
+    "fastapi": "fastapi",
+    "pydantic": "pydantic>=2",
+    "jinja2": "jinja2",
+    "markdown": "markdown",
+    "bs4": "beautifulsoup4",
+}
+
+
+def check_requirements():
+    import importlib.util
+
+    if sys.version_info < (3, 10):
+        sys.exit(f"Python 3.10+ is required (tree-sitter 0.25), this is {sys.version.split()[0]} at {sys.executable}")
+
+    missing = [pkg for module, pkg in REQUIREMENTS.items() if importlib.util.find_spec(module) is None]
+    if missing:
+        sys.exit(
+            f"Missing Python packages for {sys.executable}:\n  " + "\n  ".join(missing)
+            + "\n\nInstall them with:\n"
+            + f"  {sys.executable} -m pip install -r scanner/requirements.txt -r server/requirements.txt"
+        )
+
+    from tree_sitter import Query  # noqa: F401  (0.25+ API used by the extractors)
+
+
 def main():
     args = parse_args()
+    check_requirements()
 
     repo_path = os.path.abspath(os.path.expanduser(args.repo))
     if not os.path.isdir(repo_path):

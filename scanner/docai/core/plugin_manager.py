@@ -30,7 +30,15 @@ class PluginManager:
                     f"{package}.{name}.plugin"
                 )
             except ModuleNotFoundError as e:
-                logger.debug("Skipping %s: plugin module not found (%s)", name, e)
+                if e.name and e.name.startswith(f"{package}.{name}"):
+                    logger.debug("Skipping %s: plugin module not found (%s)", name, e)
+                else:
+                    # the plugin exists but one of its libraries is not installed
+                    logger.error(
+                        "Plugin %s needs the Python package '%s', which is not installed. "
+                        "Run: pip install -r scanner/requirements.txt",
+                        name, e.name,
+                    )
                 continue
             except Exception as e:
                 logger.error("Failed loading %s: %s", name, e)
