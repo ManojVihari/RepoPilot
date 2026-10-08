@@ -1,31 +1,78 @@
 import difflib
-from email.mime import base
-import os
-import bs4
 from urllib.parse import quote
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from app.config import TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
-from app.services.version_service import VersionService
+from app.services import docs_store
 from app.services.qa_plan_service import QAPlanService
 from app.services.doc_service import process_routes
 from app.services.llm_service import summarize_changes, search_apis_rag, answer_question_based_on_docs
 from app.services.qa_plan_generator import generate_full_qa_plan
 from app.services.dependency_analyzer import get_impact_analysis, build_dependency_graph
 from app.services.test_templates import (
-    get_predefined_templates, list_templates, create_template, 
-    get_template_recommendations, apply_templates_to_qa_plan
+    get_predefined_templates, list_templates, create_template,
+    get_template_recommendations
 )
 import markdown
 from bs4 import BeautifulSoup
 
 router = APIRouter()
-version_service = VersionService()
 qa_plan_service = QAPlanService()
-templates = Jinja2Templates(directory="app/ui/templates")
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+DOC_MARKDOWN_EXTENSIONS = [
+    "tables",
+    "fenced_code",
+    "toc",
+    "codehilite",
+    "attr_list",
+    "md_in_html"
+]
+
+
+def _nav_context(repo):
+    """Sidebar data shared by the per-API pages."""
+    return {
+        "apis": [{"name": api} for api in docs_store.list_apis(repo)],
+        "repos": docs_store.list_repos()
+    }
+
+
+def _repos_overview(include_version_count=False):
+    data = {}
+
+    for repo in docs_store.list_repos():
+        apis = []
+
+        for api in docs_store.list_apis(repo):
+            versions = docs_store.list_versions(repo, api)
+            entry = {"name": api, "latest_version": versions[-1]}
+
+            if include_version_count:
+                entry["versions"] = len(versions)
+
+            apis.append(entry)
+
+        if apis:
+            data[repo] = apis
+
+    return data
+
+
+def _default_versions(versions, v1, v2):
+    """v2 defaults to the latest version, v1 to the one before it."""
+    if v2 is None:
+        v2 = versions[-1]
+
+    if v1 is None and len(versions) > 1:
+        v1 = versions[-2]
+
+    return v1, v2
 
 
 @router.post("/analyze")
@@ -42,157 +89,25 @@ async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
         "status": "processing_started"
     }
 
+
 @router.get("/ui", response_class=HTMLResponse)
 def ui_home(request: Request):
-
-    import os
-    import json
-
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    base = os.path.join(BASE_DIR, "docs")
-
-    data = {}
-
-    if os.path.exists(base):
-
-        for repo in os.listdir(base):
-
-            # 🔥 skip hidden files like .DS_Store
-            if repo.startswith("."):
-                continue
-
-            repo_path = os.path.join(base, repo)
-
-            if not os.path.isdir(repo_path):
-                continue
-
-            apis = []
-
-            for api in os.listdir(repo_path):
-
-                # 🔥 skip hidden files again
-                if api.startswith("."):
-                    continue
-
-                api_path = os.path.join(repo_path, api)
-
-                if not os.path.isdir(api_path):
-                    continue
-
-                versions = [
-                    f for f in os.listdir(api_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-
-                if not versions:
-                    continue  # 🔥 skip empty APIs
-
-                latest = max(
-                    [int(v.replace("v", "").replace(".md", "")) for v in versions],
-                    default=0
-                )
-
-                apis.append({
-                    "name": api,
-                    "latest_version": latest
-                })
-
-            if apis:
-                data[repo] = sorted(apis, key=lambda x: x["name"])
-
-    print("FINAL DATA:", json.dumps(data, indent=2))
-
     return templates.TemplateResponse(
+        request,
         "index.html",
-        {
-            "request": request,
-            "data": dict(sorted(data.items()))
-        }
+        {"data": _repos_overview()}
     )
+
 
 @router.get("/ui/all", response_class=HTMLResponse)
 def ui_all_apis(request: Request):
     """Display all APIs from all repositories in a unified view"""
-    
-    import os
-    import json
-
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    base = os.path.join(BASE_DIR, "docs")
-
-    data = {}
-
-    if os.path.exists(base):
-
-        for repo in os.listdir(base):
-
-            # 🔥 skip hidden files like .DS_Store
-            if repo.startswith("."):
-                continue
-
-            repo_path = os.path.join(base, repo)
-
-            if not os.path.isdir(repo_path):
-                continue
-
-            apis = []
-
-            for api in os.listdir(repo_path):
-
-                # 🔥 skip hidden files again
-                if api.startswith("."):
-                    continue
-
-                api_path = os.path.join(repo_path, api)
-
-                if not os.path.isdir(api_path):
-                    continue
-
-                versions = [
-                    f for f in os.listdir(api_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-
-                if not versions:
-                    continue  # 🔥 skip empty APIs
-
-                latest = max(
-                    [int(v.replace("v", "").replace(".md", "")) for v in versions],
-                    default=0
-                )
-
-                apis.append({
-                    "name": api,
-                    "latest_version": latest,
-                    "versions": len(versions)
-                })
-
-            if apis:
-                data[repo] = sorted(apis, key=lambda x: x["name"])
-
-    print("ALL APIS DATA:", json.dumps(data, indent=2))
-
     return templates.TemplateResponse(
+        request,
         "all_apis.html",
-        {
-            "request": request,
-            "data": dict(sorted(data.items()))
-        }
+        {"data": _repos_overview(include_version_count=True)}
     )
-# def api_history(request: Request, repo: str, api: str):
 
-#     versions = version_service.get_versions(repo, api)
-
-#     return templates.TemplateResponse(
-#         "history.html",
-#         {
-#             "request": request,
-#             "repo": repo,
-#             "api": api,
-#             "versions": versions,
-#             "apis": version_service.get_apis(repo) 
-#         }
-#     )
 
 def render_md(md_text):
     return markdown.markdown(
@@ -210,8 +125,6 @@ def html_to_blocks(html):
     return blocks
 
 def generate_diff(content1, content2):
-    import difflib
-
     diff = list(difflib.ndiff(content1, content2))
 
     rows = []
@@ -300,8 +213,6 @@ def highlight_table_diff(old_html, new_html):
     return str(old_soup), str(new_soup)
 
 def highlight_words(old, new):
-    import difflib
-
     result_old = []
     result_new = []
 
@@ -319,41 +230,28 @@ def highlight_words(old, new):
 
     return " ".join(result_old), " ".join(result_new)
 
+
 @router.get("/ui/{repo}/{api}/diff", response_class=HTMLResponse)
 def api_diff(request: Request, repo: str, api: str, v1: int, v2: int):
 
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
+    md1 = docs_store.read_version(repo, api, v1)
+    md2 = docs_store.read_version(repo, api, v2)
 
-    # Check if both version files exist
-    file_v1 = os.path.join(api_path, f"v{v1}.md")
-    file_v2 = os.path.join(api_path, f"v{v2}.md")
-
-    if not os.path.exists(file_v1) or not os.path.exists(file_v2):
+    if md1 is None or md2 is None:
         return HTMLResponse("Invalid versions", status_code=404)
-
-    # Read both versions
-    with open(file_v1, "r") as f:
-        md1 = f.read()
-    
-    with open(file_v2, "r") as f:
-        md2 = f.read()
 
     # Generate LLM summary of changes
     summary = summarize_changes(md1, md2, api)
 
-    html1 = render_md(md1)
-    html2 = render_md(md2)
-
-    content1 = html_to_blocks(html1)
-    content2 = html_to_blocks(html2)
+    content1 = html_to_blocks(render_md(md1))
+    content2 = html_to_blocks(render_md(md2))
 
     diff_rows = generate_diff(content1, content2)
 
     return templates.TemplateResponse(
+        request,
         "diff.html",
         {
-            "request": request,
             "repo": repo,
             "api": api,
             "v1": v1,
@@ -363,321 +261,98 @@ def api_diff(request: Request, repo: str, api: str, v1: int, v2: int):
         }
     )
 
-# @router.get("/ui/{repo}/{api}/diff", response_class=HTMLResponse)
-# def api_diff(request: Request, repo: str, api: str, v1: int, v2: int):
 
-#     versions = version_service.get_versions(repo, api)
-#     v_map = {v["version"]: v for v in versions}
-
-#     if v1 not in v_map or v2 not in v_map:
-#         return HTMLResponse("Invalid versions", status_code=404)
-
-#     def render_md(md_text):
-#         return markdown.markdown(md_text, extensions=["tables", "fenced_code"])
-
-#     def clean_html(html):
-#         soup = BeautifulSoup(html, "html.parser")
-#         return soup.get_text().splitlines()
-
-#     html1 = render_md(v_map[v1]["content"])
-#     html2 = render_md(v_map[v2]["content"])
-
-#     content1 = clean_html(html1)
-#     content2 = clean_html(html2)
-
-#     diff_table = difflib.HtmlDiff(wrapcolumn=100).make_table(
-#         content1,
-#         content2,
-#         fromdesc=f"v{v1}",
-#         todesc=f"v{v2}",
-#         context=True,
-#         numlines=5
-#     )
-
-#     return templates.TemplateResponse(
-#         "diff.html",
-#         {
-#             "request": request,
-#             "repo": repo,
-#             "api": api,
-#             "v1": v1,
-#             "v2": v2,
-#             "diff": diff_table
-#         }
-#     )
-
-
-@router.get("/ui/{repo}/{api}/view/{version}", response_class=HTMLResponse)
-def view_doc(request: Request, repo: str, api: str, version: str):
-
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    file_path = os.path.join(BASE_DIR, "docs", repo, api, f"v{version}.md")
-
-    if not os.path.exists(file_path):
-        return HTMLResponse("Document not found", status_code=404)
-
-    with open(file_path, "r") as f:
-        md_content = f.read()
-
-    md = markdown.Markdown(
-        extensions=[
-            "tables",
-            "fenced_code",
-            "toc",
-            "codehilite",
-            "attr_list",
-            "md_in_html"
-        ]
-    )
+def _render_doc_page(request, repo, api, version, md_content):
+    md = markdown.Markdown(extensions=DOC_MARKDOWN_EXTENSIONS)
 
     html_content = md.convert(md_content)
     toc = getattr(md, 'toc', '')
 
-    # Get all apis in this repo
-    repo_path = os.path.join(BASE_DIR, "docs", repo)
-    apis = []
-    
-    if os.path.exists(repo_path):
-        for api_dir in os.listdir(repo_path):
-            api_dir_path = os.path.join(repo_path, api_dir)
-            if os.path.isdir(api_dir_path):
-                api_versions = [
-                    f for f in os.listdir(api_dir_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                if api_versions:
-                    apis.append({"name": api_dir})
-
-    apis = sorted(apis, key=lambda x: x["name"])
-
-    # Get all repos
-    base = os.path.join(BASE_DIR, "docs")
-    repos = []
-    if os.path.exists(base):
-        for r in os.listdir(base):
-            if not r.startswith(".") and os.path.isdir(os.path.join(base, r)):
-                repos.append(r)
-    repos = sorted(repos)
-
     return templates.TemplateResponse(
+        request,
         "view.html",
         {
-            "request": request,
             "repo": repo,
             "api": api,
             "version": version,
             "content": html_content,
             "toc": toc,
-            "apis": apis,
-            "repos": repos
+            **_nav_context(repo)
         }
     )
+
+
+@router.get("/ui/{repo}/{api}/view/{version}", response_class=HTMLResponse)
+def view_doc(request: Request, repo: str, api: str, version: str):
+
+    md_content = docs_store.read_version(repo, api, version)
+
+    if md_content is None:
+        return HTMLResponse("Document not found", status_code=404)
+
+    return _render_doc_page(request, repo, api, version, md_content)
+
 
 @router.get("/ui/{repo}/{api}", response_class=HTMLResponse)
 def view_latest(request: Request, repo: str, api: str):
 
-    # Get latest version from docs directory
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
-
-    if not os.path.exists(api_path):
+    if not docs_store.api_path(repo, api):
         return HTMLResponse("API not found", status_code=404)
 
-    # Get all versions
-    versions = [
-        f for f in os.listdir(api_path)
-        if f.startswith("v") and f.endswith(".md")
-    ]
+    versions = docs_store.list_versions(repo, api)
 
     if not versions:
         return HTMLResponse("No versions found", status_code=404)
 
-    # Get latest version number
-    latest_version = max(
-        [int(v.replace("v", "").replace(".md", "")) for v in versions],
-        default=None
-    )
+    latest_version = versions[-1]
+    md_content = docs_store.read_version(repo, api, latest_version)
 
-    if latest_version is None:
-        return HTMLResponse("No valid versions found", status_code=404)
-
-    # Read latest version file
-    latest_file = os.path.join(api_path, f"v{latest_version}.md")
-    
-    with open(latest_file, "r") as f:
-        md_content = f.read()
-
-    # Use advanced markdown rendering with extensions
-    md = markdown.Markdown(
-        extensions=[
-            "tables",
-            "fenced_code",
-            "toc",
-            "codehilite",
-            "attr_list",
-            "md_in_html"
-        ]
-    )
-    
-    html_content = md.convert(md_content)
-    toc = getattr(md, 'toc', '')
-
-    # Get all apis in this repo
-    repo_path = os.path.join(BASE_DIR, "docs", repo)
-    apis = []
-    
-    if os.path.exists(repo_path):
-        for api_dir in os.listdir(repo_path):
-            api_dir_path = os.path.join(repo_path, api_dir)
-            if os.path.isdir(api_dir_path):
-                api_versions = [
-                    f for f in os.listdir(api_dir_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                if api_versions:
-                    apis.append({
-                        "name": api_dir,
-                    })
-
-    apis = sorted(apis, key=lambda x: x["name"])
-
-    # Get all repos
-    base = os.path.join(BASE_DIR, "docs")
-    repos = []
-    if os.path.exists(base):
-        for r in os.listdir(base):
-            if not r.startswith(".") and os.path.isdir(os.path.join(base, r)):
-                repos.append(r)
-    repos = sorted(repos)
-
-    return templates.TemplateResponse(
-        "view.html",
-        {
-            "request": request,
-            "repo": repo,
-            "api": api,
-            "version": latest_version,
-            "content": html_content,
-            "toc": toc,
-            "apis": apis,
-            "repos": repos
-        }
-    )
+    return _render_doc_page(request, repo, api, latest_version, md_content)
 
 
 @router.get("/ui/{repo}/{api}/history", response_class=HTMLResponse)
 def api_versions(request: Request, repo: str, api: str):
 
-    # Get versions from docs directory
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
-
-    if not os.path.exists(api_path):
+    if not docs_store.api_path(repo, api):
         return HTMLResponse("API not found", status_code=404)
 
-    # Get all version files
-    version_files = [
-        f for f in os.listdir(api_path)
-        if f.startswith("v") and f.endswith(".md")
+    # Oldest first; markdown files carry no commit hash
+    versions = [
+        {"version": v, "commit_hash": "N/A"}
+        for v in docs_store.list_versions(repo, api)
     ]
 
-    versions = []
-    for version_file in version_files:
-        try:
-            version_num = int(version_file.replace("v", "").replace(".md", ""))
-            versions.append({
-                "version": version_num,
-                "commit_hash": "N/A"  # Since we're reading from markdown files, no commit hash
-            })
-        except ValueError:
-            continue
-
-    # Sort by version number (ascending - oldest first)
-    versions = sorted(versions, key=lambda x: x["version"])
-
-    # Get all apis in this repo
-    repo_path = os.path.join(BASE_DIR, "docs", repo)
-    apis = []
-    
-    if os.path.exists(repo_path):
-        for api_dir in os.listdir(repo_path):
-            api_dir_path = os.path.join(repo_path, api_dir)
-            if os.path.isdir(api_dir_path):
-                api_versions = [
-                    f for f in os.listdir(api_dir_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                if api_versions:
-                    apis.append({
-                        "name": api_dir,
-                    })
-
-    apis = sorted(apis, key=lambda x: x["name"])
-
-    # Get all repos
-    base = os.path.join(BASE_DIR, "docs")
-    repos = []
-    if os.path.exists(base):
-        for r in os.listdir(base):
-            if not r.startswith(".") and os.path.isdir(os.path.join(base, r)):
-                repos.append(r)
-    repos = sorted(repos)
-
     return templates.TemplateResponse(
+        request,
         "history.html",
         {
-            "request": request,
             "repo": repo,
             "api": api,
             "versions": versions,
-            "apis": apis,
-            "repos": repos
+            **_nav_context(repo)
         }
     )
+
 
 @router.get("/ui/search", response_class=HTMLResponse)
 def ui_search(request: Request):
     """Display the LLM search page"""
-    return templates.TemplateResponse(
-        "llm_search.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse(request, "llm_search.html", {})
+
 
 @router.get("/ui/{repo}", response_class=HTMLResponse)
 def repo_home(request: Request, repo: str):
-    # Get APIs from docs directory
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    repo_path = os.path.join(BASE_DIR, "docs", repo)
-    
-    if not os.path.exists(repo_path):
+
+    if not docs_store.is_safe_name(repo) or repo not in docs_store.list_repos():
         return HTMLResponse(f"Repository '{repo}' not found", status_code=404)
-    
-    # Get all APIs in this repo
-    apis = []
-    try:
-        for api_dir in os.listdir(repo_path):
-            if api_dir.startswith("."):
-                continue
-            api_dir_path = os.path.join(repo_path, api_dir)
-            if os.path.isdir(api_dir_path):
-                api_versions = [
-                    f for f in os.listdir(api_dir_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                if api_versions:
-                    apis.append(api_dir)
-    except Exception as e:
-        print(f"Error reading APIs from {repo_path}: {e}")
-        return HTMLResponse(f"Error reading repository: {e}", status_code=500)
-    
+
+    apis = docs_store.list_apis(repo)
+
     if not apis:
         return HTMLResponse(f"No APIs found in repository '{repo}'", status_code=404)
 
-    # Pick first API alphabetically
-    first_api = sorted(apis)[0]
-
-    # Redirect to latest view with proper URL encoding
-    return RedirectResponse(url=f"/ui/{quote(repo, safe='')}/{quote(first_api, safe='')}")
+    # Redirect to the first API alphabetically
+    return RedirectResponse(url=f"/ui/{quote(repo, safe='')}/{quote(apis[0], safe='')}")
 
 
 @router.post("/api/search")
@@ -715,11 +390,11 @@ async def search_apis(request: Request):
                 status_code=400
             )
         
-        # Search for matching APIs using LLM
-        matching_apis = search_apis_rag(query)
+        # LLM calls block, keep them off the event loop
+        matching_apis = await run_in_threadpool(search_apis_rag, query)
         
         # Generate a conversational answer based on actual documentation
-        answer_result = answer_question_based_on_docs(query, matching_apis)
+        answer_result = await run_in_threadpool(answer_question_based_on_docs, query, matching_apis)
         
         return JSONResponse({
             "success": answer_result["success"],
@@ -753,93 +428,40 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
     Args:
         force: If True, bypass cache and regenerate QA plan
     """
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
-    
-    if not os.path.exists(api_path):
+    if not docs_store.api_path(repo, api):
         return HTMLResponse(f"API '{api}' not found in repository '{repo}'", status_code=404)
-    
-    # Get available versions
-    versions = [
-        int(f.replace("v", "").replace(".md", ""))
-        for f in os.listdir(api_path)
-        if f.startswith("v") and f.endswith(".md")
-    ]
-    
+
+    versions = docs_store.list_versions(repo, api)
+
     if not versions:
         return HTMLResponse("No versions found for this API", status_code=404)
-    
-    # If v2 not provided, use latest version
-    if v2 is None:
-        v2 = max(versions)
-    
-    # If v1 not provided, use second-to-latest (for regression) or None
-    if v1 is None and len(versions) > 1:
-        versions_sorted = sorted(versions)
-        v1 = versions_sorted[-2]  # second-to-latest
-    
+
+    v1, v2 = _default_versions(versions, v1, v2)
+
     # Check if QA plan is cached (unless force=True to bypass cache)
     cached_plan = None if force else qa_plan_service.get_qa_plan(repo, api, v2)
     
     if cached_plan:
-        # Use cached plan
         qa_plan = cached_plan.get("plan", {})
         plan_generated_at = cached_plan.get("generated_at")
     else:
-        # Generate new QA plan
-        # Read version files
-        file_v2 = os.path.join(api_path, f"v{v2}.md")
-        if not os.path.exists(file_v2):
+        doc_v2 = docs_store.read_version(repo, api, v2)
+
+        if doc_v2 is None:
             return HTMLResponse(f"Version v{v2} not found", status_code=404)
-        
-        with open(file_v2, "r") as f:
-            doc_v2 = f.read()
-        
-        # Read v1 if regression testing
-        doc_v1 = None
-        if v1:
-            file_v1 = os.path.join(api_path, f"v{v1}.md")
-            if os.path.exists(file_v1):
-                with open(file_v1, "r") as f:
-                    doc_v1 = f.read()
-        
-        # Generate QA plan
+
+        # v1 doc enables regression testing
+        doc_v1 = docs_store.read_version(repo, api, v1) if v1 else None
+
         qa_plan = generate_full_qa_plan(api, doc_v2, doc_v1)
-        
-        # Store the generated plan
         qa_plan_service.save_qa_plan(repo, api, v2, qa_plan)
-        
+
         plan_generated_at = datetime.utcnow().isoformat()
-    
-    # Get all repos for navigation
-    base = os.path.join(BASE_DIR, "docs")
-    repos = []
-    if os.path.exists(base):
-        for r in os.listdir(base):
-            if not r.startswith(".") and os.path.isdir(os.path.join(base, r)):
-                repos.append(r)
-    repos = sorted(repos)
-    
-    # Get all APIs in this repo
-    repo_path = os.path.join(BASE_DIR, "docs", repo)
-    apis = []
-    if os.path.exists(repo_path):
-        for api_dir in os.listdir(repo_path):
-            api_dir_path = os.path.join(repo_path, api_dir)
-            if os.path.isdir(api_dir_path):
-                api_versions = [
-                    f for f in os.listdir(api_dir_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                if api_versions:
-                    apis.append({"name": api_dir})
-    
-    apis = sorted(apis, key=lambda x: x["name"])
-    
+
     return templates.TemplateResponse(
+        request,
         "qa_plan.html",
         {
-            "request": request,
             "repo": repo,
             "api": api,
             "v1": v1,
@@ -847,14 +469,13 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
             "qa_plan": qa_plan,
             "plan_generated_at": plan_generated_at,
             "is_cached": cached_plan is not None,
-            "apis": apis,
-            "repos": repos
+            **_nav_context(repo)
         }
     )
 
 
 @router.get("/api/qa-plan")
-async def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = None, force: bool = False):
+def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = None, force: bool = False):
     """
     API endpoint to generate QA plan as JSON.
     Useful for integrating with CI/CD pipelines.
@@ -862,65 +483,38 @@ async def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = No
     Args:
         force: If True, bypass cache and regenerate QA plan
     """
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
-    
-    if not os.path.exists(api_path):
+    if not docs_store.api_path(repo, api):
         return JSONResponse(
             {"error": f"API '{api}' not found in repository '{repo}'"},
             status_code=404
         )
-    
-    # Get available versions
-    versions = [
-        int(f.replace("v", "").replace(".md", ""))
-        for f in os.listdir(api_path)
-        if f.startswith("v") and f.endswith(".md")
-    ]
-    
+
+    versions = docs_store.list_versions(repo, api)
+
     if not versions:
         return JSONResponse(
             {"error": "No versions found for this API"},
             status_code=404
         )
-    
-    # If v2 not provided, use latest version
-    if v2 is None:
-        v2 = max(versions)
-    
-    # If v1 not provided, use second-to-latest (for regression) or None
-    if v1 is None and len(versions) > 1:
-        versions_sorted = sorted(versions)
-        v1 = versions_sorted[-2]
-    
-    # Read version files
-    file_v2 = os.path.join(api_path, f"v{v2}.md")
-    if not os.path.exists(file_v2):
+
+    v1, v2 = _default_versions(versions, v1, v2)
+
+    if v2 not in versions:
         return JSONResponse(
             {"error": f"Version v{v2} not found"},
             status_code=404
         )
-    
-    with open(file_v2, "r") as f:
-        doc_v2 = f.read()
-    
-    # Read v1 if regression testing
-    doc_v1 = None
-    if v1:
-        file_v1 = os.path.join(api_path, f"v{v1}.md")
-        if os.path.exists(file_v1):
-            with open(file_v1, "r") as f:
-                doc_v1 = f.read()
-    
+
     # Check cache (unless force=True)
     cached_plan = None if force else qa_plan_service.get_qa_plan(repo, api, v2)
     
     if cached_plan:
         qa_plan = cached_plan.get("plan", {})
     else:
-        # Generate QA plan
+        doc_v2 = docs_store.read_version(repo, api, v2)
+        doc_v1 = docs_store.read_version(repo, api, v1) if v1 else None
+
         qa_plan = generate_full_qa_plan(api, doc_v2, doc_v1)
-        # Save to cache
         qa_plan_service.save_qa_plan(repo, api, v2, qa_plan)
     
     return JSONResponse(qa_plan)
@@ -931,19 +525,22 @@ async def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = No
 # ============================================================================
 
 @router.get("/api/dependency-graph")
-async def get_dependency_graph_api(repo: str):
+def get_dependency_graph_api(repo: str):
     """
     Get dependency graph for a repository showing API relationships.
     
     Query params:
         repo: Repository name
     """
+    if not docs_store.is_safe_name(repo):
+        return JSONResponse({"nodes": [], "links": []})
+
     graph = build_dependency_graph(repo)
     return JSONResponse(graph)
 
 
 @router.get("/api/impact-analysis")
-async def get_impact_analysis_api(repo: str, api: str, v1: int, v2: int):
+def get_impact_analysis_api(repo: str, api: str, v1: int, v2: int):
     """
     Get breaking change impact analysis for an API upgrade.
     
@@ -953,24 +550,9 @@ async def get_impact_analysis_api(repo: str, api: str, v1: int, v2: int):
         v1: Version 1
         v2: Version 2
     """
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
-    
-    # Read version files
-    file_v1 = os.path.join(api_path, f"v{v1}.md")
-    file_v2 = os.path.join(api_path, f"v{v2}.md")
-    
-    v1_content = ""
-    v2_content = ""
-    
-    if os.path.exists(file_v1):
-        with open(file_v1, 'r') as f:
-            v1_content = f.read()
-    
-    if os.path.exists(file_v2):
-        with open(file_v2, 'r') as f:
-            v2_content = f.read()
-    
+    v1_content = docs_store.read_version(repo, api, v1) or ""
+    v2_content = docs_store.read_version(repo, api, v2) or ""
+
     impact = get_impact_analysis(repo, api, v1_content, v2_content)
     return JSONResponse(impact)
 
@@ -980,21 +562,19 @@ async def get_impact_analysis_api(repo: str, api: str, v1: int, v2: int):
 # ============================================================================
 
 @router.get("/api/templates/predefined")
-async def get_predefined_templates_api():
+def get_predefined_templates_api():
     """Get all predefined test templates."""
-    templates = get_predefined_templates()
-    return JSONResponse(templates)
+    return JSONResponse(get_predefined_templates())
 
 
 @router.get("/api/templates/recommendations")
-async def get_template_recommendations_api(api: str):
+def get_template_recommendations_api(api: str):
     """Get recommended templates for an API."""
-    recommendations = get_template_recommendations(api)
-    return JSONResponse(recommendations)
+    return JSONResponse(get_template_recommendations(api))
 
 
 @router.get("/api/templates/list")
-async def list_templates_api(repo: str, category: str = None):
+def list_templates_api(repo: str, category: str = None):
     """
     List custom templates for a repository.
     
@@ -1002,12 +582,11 @@ async def list_templates_api(repo: str, category: str = None):
         repo: Repository name
         category: Optional category filter
     """
-    templates = list_templates(repo, category)
-    return JSONResponse(templates)
+    return JSONResponse(list_templates(repo, category))
 
 
 @router.post("/api/templates/create")
-async def create_template_api(
+def create_template_api(
     repo: str,
     name: str,
     category: str,
@@ -1037,82 +616,35 @@ def dependencies_view(request: Request, repo: str, api: str, v1: int = None, v2:
     """
     Display dependency analysis and impact graph for API changes.
     """
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
-    
-    if not os.path.exists(api_path):
+    if not docs_store.api_path(repo, api):
         return HTMLResponse(f"API '{api}' not found in repository '{repo}'", status_code=404)
-    
-    # Get available versions
-    versions = [
-        int(f.replace("v", "").replace(".md", ""))
-        for f in os.listdir(api_path)
-        if f.startswith("v") and f.endswith(".md")
-    ]
-    
+
+    versions = docs_store.list_versions(repo, api)
+
     if not versions:
         return HTMLResponse("No versions found for this API", status_code=404)
-    
-    # If v2 not provided, use latest version
-    if v2 is None:
-        v2 = max(versions)
-    
-    # If v1 not provided, use second-to-latest
-    if v1 is None and len(versions) > 1:
-        versions_sorted = sorted(versions)
-        v1 = versions_sorted[-2]
-    
-    # Read version files
-    file_v1 = os.path.join(api_path, f"v{v1}.md") if v1 else None
-    file_v2 = os.path.join(api_path, f"v{v2}.md")
-    
-    v1_content = ""
-    if file_v1 and os.path.exists(file_v1):
-        with open(file_v1, 'r') as f:
-            v1_content = f.read()
-    
-    with open(file_v2, 'r') as f:
-        v2_content = f.read()
-    
-    # Get impact analysis
+
+    v1, v2 = _default_versions(versions, v1, v2)
+
+    v2_content = docs_store.read_version(repo, api, v2)
+
+    if v2_content is None:
+        return HTMLResponse(f"Version v{v2} not found", status_code=404)
+
+    v1_content = (docs_store.read_version(repo, api, v1) if v1 else None) or ""
+
     impact_data = get_impact_analysis(repo, api, v1_content, v2_content)
-    
-    # Get all repos for navigation
-    base = os.path.join(BASE_DIR, "docs")
-    repos = []
-    if os.path.exists(base):
-        for r in os.listdir(base):
-            if not r.startswith(".") and os.path.isdir(os.path.join(base, r)):
-                repos.append(r)
-    repos = sorted(repos)
-    
-    # Get all APIs in this repo
-    repo_path = os.path.join(BASE_DIR, "docs", repo)
-    apis = []
-    if os.path.exists(repo_path):
-        for api_dir in os.listdir(repo_path):
-            api_dir_path = os.path.join(repo_path, api_dir)
-            if os.path.isdir(api_dir_path):
-                api_versions = [
-                    f for f in os.listdir(api_dir_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                if api_versions:
-                    apis.append({"name": api_dir})
-    
-    apis = sorted(apis, key=lambda x: x["name"])
-    
+
     return templates.TemplateResponse(
+        request,
         "dependencies.html",
         {
-            "request": request,
             "repo": repo,
             "api": api,
             "v1": v1,
             "v2": v2,
             "impact_data": impact_data,
-            "apis": apis,
-            "repos": repos
+            **_nav_context(repo)
         }
     )
 
@@ -1122,56 +654,18 @@ def templates_view(request: Request, repo: str, api: str):
     """
     Display and manage test templates for an API.
     """
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    api_path = os.path.join(BASE_DIR, "docs", repo, api)
-    
-    if not os.path.exists(api_path):
+    if not docs_store.api_path(repo, api):
         return HTMLResponse(f"API '{api}' not found in repository '{repo}'", status_code=404)
-    
-    # Get recommended templates
-    recommendations = get_template_recommendations(api)
-    
-    # Get custom templates for this repo
-    custom_templates = list_templates(repo)
-    
-    # Get predefined templates
-    predefined = get_predefined_templates()
-    
-    # Get all repos for navigation
-    base = os.path.join(BASE_DIR, "docs")
-    repos = []
-    if os.path.exists(base):
-        for r in os.listdir(base):
-            if not r.startswith(".") and os.path.isdir(os.path.join(base, r)):
-                repos.append(r)
-    repos = sorted(repos)
-    
-    # Get all APIs in this repo
-    repo_path = os.path.join(BASE_DIR, "docs", repo)
-    apis = []
-    if os.path.exists(repo_path):
-        for api_dir in os.listdir(repo_path):
-            api_dir_path = os.path.join(repo_path, api_dir)
-            if os.path.isdir(api_dir_path):
-                api_versions = [
-                    f for f in os.listdir(api_dir_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                if api_versions:
-                    apis.append({"name": api_dir})
-    
-    apis = sorted(apis, key=lambda x: x["name"])
-    
+
     return templates.TemplateResponse(
+        request,
         "templates.html",
         {
-            "request": request,
             "repo": repo,
             "api": api,
-            "recommendations": recommendations,
-            "custom_templates": custom_templates,
-            "predefined_templates": predefined,
-            "apis": apis,
-            "repos": repos
+            "recommendations": get_template_recommendations(api),
+            "custom_templates": list_templates(repo),
+            "predefined_templates": get_predefined_templates(),
+            **_nav_context(repo)
         }
     )

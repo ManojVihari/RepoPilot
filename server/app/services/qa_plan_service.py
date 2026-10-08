@@ -6,6 +6,7 @@ import os
 import json
 from datetime import datetime
 from typing import Optional, Dict
+from app.config import DATABASE_DIR
 
 
 class QAPlanService:
@@ -14,7 +15,7 @@ class QAPlanService:
     QA plans are cached to avoid regenerating on every page load.
     """
 
-    def __init__(self, base_path="database"):
+    def __init__(self, base_path=DATABASE_DIR):
         self.base_path = base_path
         os.makedirs(base_path, exist_ok=True)
 

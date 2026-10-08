@@ -1,12 +1,13 @@
 import requests
 import json
+from app.config import OLLAMA_URL, OLLAMA_MODEL
 
 
 class APIDocGenerator:
 
-    def __init__(self, model="mistral"):
+    def __init__(self, model=OLLAMA_MODEL):
         self.model = model
-        self.ollama_url = "http://localhost:11434/api/generate"
+        self.ollama_url = OLLAMA_URL
 
     def generate_explanation(self, route):
 

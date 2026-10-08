@@ -91,6 +91,11 @@ class MarkdownBuilder:
             md += "|------|------|------|\n"
 
             for err in errors:
+                if not isinstance(err, dict):
+                    # plain status code (404) or HttpStatus name (NOT_FOUND)
+                    md += f"| {err} | - | - |\n"
+                    continue
+
                 fields = err.get("fields", [])
 
                 for f in fields:

@@ -5,11 +5,10 @@ for API documentation using local Ollama LLM.
 """
 import requests
 import json
-from typing import Optional, List, Dict
+from typing import Optional, Dict
+from app.config import OLLAMA_URL, OLLAMA_MODEL
 
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "mistral"
 
 
 def generate_template_qa_plan(api_name: str) -> Dict:
@@ -189,7 +188,7 @@ IMPORTANT:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False
             },
@@ -290,7 +289,7 @@ IMPORTANT:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False
             },

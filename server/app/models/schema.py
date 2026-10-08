@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional,Union
+from typing import List, Optional, Union
 
 
 class Parameter(BaseModel):
@@ -27,7 +27,9 @@ class Route(BaseModel):
     params: Optional[List[dict]] = []
 
     status_codes: Optional[List[StatusCode]] = []
-    errors: Optional[List[dict]] = []
+    # FastAPI scanner sends status codes (int), Spring sends HttpStatus
+    # names (str) and field-validation errors (dict)
+    errors: Optional[List[Union[int, str, dict]]] = []
 
     source_code: Optional[str] = ""
 
@@ -37,7 +39,7 @@ class Route(BaseModel):
     impact: Optional[List[str]] = []
     response: Optional[dict] = {}
     db_ops: Optional[List[dict]] = []
-    breaking_changes: Optional[List[dict]] = {}
+    breaking_changes: Optional[List[dict]] = []
 
 
 class AnalyzeRequest(BaseModel):

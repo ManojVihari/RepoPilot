@@ -3,10 +3,9 @@ Dependency Analyzer Service
 Analyzes API dependencies, breaking changes impact, and creates dependency graphs
 """
 import os
-import json
 import re
-from typing import Dict, List, Optional, Set
-from difflib import SequenceMatcher
+from typing import Dict, List, Set
+from app.config import DOCS_DIR
 
 
 def extract_endpoints_from_doc(doc_content: str) -> Set[str]:
@@ -104,7 +103,7 @@ def _calculate_impact_level(removed: Set[str], total: Set[str]) -> str:
         return "high"
 
 
-def build_dependency_graph(repo: str, base_path: str = "docs") -> Dict:
+def build_dependency_graph(repo: str, base_path: str = DOCS_DIR) -> Dict:
     """
     Build a dependency graph of all APIs in a repository.
     
@@ -214,7 +213,7 @@ def _has_semantic_relationship(api1: str, api2: str) -> bool:
     return False
 
 
-def get_impact_analysis(repo: str, api: str, v1_doc: str, v2_doc: str, base_path: str = "docs") -> Dict:
+def get_impact_analysis(repo: str, api: str, v1_doc: str, v2_doc: str, base_path: str = DOCS_DIR) -> Dict:
     """
     Complete impact analysis including related APIs and breaking changes.
     

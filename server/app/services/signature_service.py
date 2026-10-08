@@ -1,47 +1,3 @@
-# import hashlib
-# import json
-
-
-# class SignatureService:
-
-#     def generate(self, route):
-
-#         """
-#         Generates a stable signature for API contract.
-#         Ignores business logic and LLM output.
-#         """
-
-#         contract = {
-#             "method": route.method,
-#             "path": route.path,
-
-#             "parameters": sorted(
-#                 [
-#                     {
-#                         "name": p.name,
-#                         "type": p.type,
-#                         "required": p.required
-#                     }
-#                     for p in route.parameters
-#                 ],
-#                 key=lambda x: x["name"]
-#             ),
-
-#             "status_codes": sorted(
-#                 [
-#                     {
-#                         "code": s.code
-#                     }
-#                     for s in route.status_codes
-#                 ],
-#                 key=lambda x: x["code"]
-#             )
-#         }
-
-#         contract_str = json.dumps(contract, sort_keys=True)
-
-#         return hashlib.md5(contract_str.encode()).hexdigest()
-
 import hashlib
 import json
 
@@ -59,34 +15,37 @@ class SignatureService:
     def _normalize(self, route):
 
         """
-        Convert route object → stable dict
-        without hardcoding field-by-field logic.
+        Convert route object → stable dict covering the API contract:
+        method, path, parameters and error codes.
         """
+
+        # The scanner sends `params`/`errors`; `parameters`/`status_codes`
+        # are the older field names.
+        parameters = route.parameters or route.params or []
+        errors = route.status_codes or route.errors or []
 
         return {
             "method": route.method,
             "path": route.path,
-            "parameters": sorted(
-                [self._normalize_obj(p) for p in route.parameters],
-                key=lambda x: x["name"]
-            ),
-            "status_codes": sorted(
-                [self._normalize_obj(s) for s in route.status_codes],
-                key=lambda x: x["code"]
-            )
+            "parameters": self._sorted(parameters),
+            "status_codes": self._sorted(errors)
         }
+
+    def _sorted(self, items):
+        normalized = [self._normalize_obj(i) for i in items]
+        return sorted(normalized, key=lambda x: json.dumps(x, sort_keys=True, default=str))
 
     def _normalize_obj(self, obj):
 
         """
-        Converts Pydantic object → dict
-        safely and consistently.
+        Converts Pydantic object → dict safely and consistently.
+        Plain values (status codes, dicts) are returned as-is.
         """
 
-        if hasattr(obj, "dict"):
-            data = obj.dict()
-        else:
-            data = obj.__dict__
+        if hasattr(obj, "model_dump"):
+            return obj.model_dump()
 
-        # Remove non-contract noise if needed
-        return data
+        if hasattr(obj, "dict") and not isinstance(obj, dict):
+            return obj.dict()
+
+        return obj

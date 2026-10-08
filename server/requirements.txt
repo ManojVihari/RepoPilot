@@ -1,8 +1,8 @@
-fastapi
+# TemplateResponse(request, name, ...) needs Starlette 0.29+ (FastAPI 0.108+)
+fastapi>=0.108
 uvicorn
-jinja2
-pydantic
-requests
-sqlalchemy
-bs4
-markdown
+jinja2>=3.1
+pydantic>=2
+requests>=2.31
+beautifulsoup4
+markdown>=3.4

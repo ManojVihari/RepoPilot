@@ -3,9 +3,9 @@ LLM Service for generating summaries of API documentation changes
 and RAG-based search using local Ollama with Mistral model (no API keys required)
 """
 import requests
-import json
 import os
 from typing import Optional, List, Dict
+from app.config import DOCS_DIR, OLLAMA_URL, OLLAMA_MODEL
 
 
 def summarize_changes(v1_content: str, v2_content: str, api_name: str) -> Optional[str]:
@@ -24,8 +24,6 @@ def summarize_changes(v1_content: str, v2_content: str, api_name: str) -> Option
         - Ollama running locally on http://localhost:11434
         - Mistral model pulled: ollama pull mistral
     """
-    OLLAMA_URL = "http://localhost:11434/api/generate"
-    MODEL = "mistral"
     
     # Trim content to reasonable size for prompt
     v1_preview = v1_content[:1500]
@@ -52,7 +50,7 @@ Keep it concise - maximum 5 bullet points, under 150 words. Use professional lan
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False
             },
@@ -149,7 +147,7 @@ def calculate_api_confidence(query: str, api: Dict) -> float:
     return min(1.0, score)
 
 
-def search_apis_rag(query: str, base_path: str = "docs") -> List[Dict]:
+def search_apis_rag(query: str, base_path: str = DOCS_DIR) -> List[Dict]:
     """
     Search for APIs using RAG (Retrieval Augmented Generation) with local LLM.
     Finds relevant APIs based on semantic understanding of user query.
@@ -165,8 +163,6 @@ def search_apis_rag(query: str, base_path: str = "docs") -> List[Dict]:
         - Ollama running locally on http://localhost:11434
         - Mistral model pulled: ollama pull mistral
     """
-    OLLAMA_URL = "http://localhost:11434/api/generate"
-    MODEL = "mistral"
     
     # Step 1: Collect all available APIs
     available_apis = []
@@ -236,7 +232,7 @@ Instructions:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False
             },
@@ -312,7 +308,7 @@ Instructions:
         return []
 
 
-def answer_question_based_on_docs(query: str, matched_apis: List[Dict], base_path: str = "docs") -> Dict:
+def answer_question_based_on_docs(query: str, matched_apis: List[Dict], base_path: str = DOCS_DIR) -> Dict:
     """
     Answer user questions based on actual API documentation.
     Acts as a KT provider/assistant using only available documentation.
@@ -332,8 +328,6 @@ def answer_question_based_on_docs(query: str, matched_apis: List[Dict], base_pat
         - Ollama running locally on http://localhost:11434
         - Mistral model pulled: ollama pull mistral
     """
-    OLLAMA_URL = "http://localhost:11434/api/generate"
-    MODEL = "mistral"
     
     if not matched_apis:
         return {
@@ -401,7 +395,7 @@ INSTRUCTIONS:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False
             },

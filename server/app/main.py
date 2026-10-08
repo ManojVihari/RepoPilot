@@ -1,10 +1,9 @@
 from fastapi import FastAPI
-from app.api.routes import router
-from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from app.api.routes import router
+from app.config import STATIC_DIR
 
 app = FastAPI(title="DocAI Server")
 
 app.include_router(router)
-templates = Jinja2Templates(directory="app/ui/templates")
-app.mount("/static", StaticFiles(directory="app/ui/static"), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -6,15 +6,25 @@ import os
 import json
 from typing import Dict, List, Optional
 from datetime import datetime
+from app.config import DATABASE_DIR
+from app.services.docs_store import is_safe_name
 
 
-TEMPLATES_DIR = "database/test_templates"
+TEMPLATES_DIR = os.path.join(DATABASE_DIR, "test_templates")
 
 
-def ensure_templates_dir():
-    """Create templates directory if it doesn't exist."""
-    if not os.path.exists(TEMPLATES_DIR):
-        os.makedirs(TEMPLATES_DIR, exist_ok=True)
+def _template_filename(template_name: str) -> str:
+    return f"{template_name.lower().replace(' ', '_').replace('-', '_')}.json"
+
+
+def _template_path(repo: str, template_name: str) -> Optional[str]:
+    """Path of a template file, or None if repo/name would escape TEMPLATES_DIR."""
+    filename = _template_filename(template_name)
+
+    if not (is_safe_name(repo) and is_safe_name(filename)):
+        return None
+
+    return os.path.join(TEMPLATES_DIR, repo, filename)
 
 
 def create_template(repo: str, name: str, category: str, description: str, test_cases: List[str]) -> bool:
@@ -31,10 +41,12 @@ def create_template(repo: str, name: str, category: str, description: str, test_
     Returns:
         True if successful, False otherwise
     """
-    ensure_templates_dir()
-    
-    repo_dir = os.path.join(TEMPLATES_DIR, repo)
-    os.makedirs(repo_dir, exist_ok=True)
+    template_path = _template_path(repo, name)
+
+    if not template_path:
+        return False
+
+    os.makedirs(os.path.dirname(template_path), exist_ok=True)
     
     template = {
         "name": name,
@@ -44,10 +56,6 @@ def create_template(repo: str, name: str, category: str, description: str, test_
         "created_at": datetime.utcnow().isoformat(),
         "test_count": len(test_cases)
     }
-    
-    # Use template name as filename (sanitize)
-    filename = f"{name.lower().replace(' ', '_').replace('-', '_')}.json"
-    template_path = os.path.join(repo_dir, filename)
     
     try:
         with open(template_path, 'w') as f:
@@ -60,12 +68,9 @@ def create_template(repo: str, name: str, category: str, description: str, test_
 
 def get_template(repo: str, template_name: str) -> Optional[Dict]:
     """Get a specific template."""
-    ensure_templates_dir()
-    
-    filename = f"{template_name.lower().replace(' ', '_').replace('-', '_')}.json"
-    template_path = os.path.join(TEMPLATES_DIR, repo, filename)
-    
-    if not os.path.exists(template_path):
+    template_path = _template_path(repo, template_name)
+
+    if not template_path or not os.path.exists(template_path):
         return None
     
     try:
@@ -87,8 +92,9 @@ def list_templates(repo: str, category: Optional[str] = None) -> List[Dict]:
     Returns:
         List of templates
     """
-    ensure_templates_dir()
-    
+    if not is_safe_name(repo):
+        return []
+
     repo_dir = os.path.join(TEMPLATES_DIR, repo)
     
     if not os.path.exists(repo_dir):
@@ -115,12 +121,9 @@ def list_templates(repo: str, category: Optional[str] = None) -> List[Dict]:
 
 def delete_template(repo: str, template_name: str) -> bool:
     """Delete a template."""
-    ensure_templates_dir()
-    
-    filename = f"{template_name.lower().replace(' ', '_').replace('-', '_')}.json"
-    template_path = os.path.join(TEMPLATES_DIR, repo, filename)
-    
-    if not os.path.exists(template_path):
+    template_path = _template_path(repo, template_name)
+
+    if not template_path or not os.path.exists(template_path):
         return False
     
     try:
