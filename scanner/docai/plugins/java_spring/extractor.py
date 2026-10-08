@@ -82,6 +82,12 @@ class SpringExtractor:
             len(index.types), len(self.endpoints), len(modules)
         )
 
+    def all_routes(self, repo_path):
+        """Every endpoint of the repository (full documentation, no diff)."""
+        self._reset(commit="HEAD")
+        self.build_model(repo_path)
+        return [dict(e) for e in self.endpoints]
+
     def describe_application(self, repo_path=None):
         if repo_path is not None:
             self.build_model(repo_path)

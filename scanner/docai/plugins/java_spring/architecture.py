@@ -317,6 +317,7 @@ class ArchitectureBuilder:
             "method": e["method"],
             "path": e["path"],
             "handler": e["handler"],
+            "doc_name": e.get("doc_name"),
             "module": e["module"],
             "summary": e.get("summary") or (e.get("description") or "")[:200] or None,
             "request_body": (e.get("request_body") or {}).get("type"),

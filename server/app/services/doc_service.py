@@ -10,23 +10,34 @@ generator=APIDocGenerator()
 markdown_builder = MarkdownBuilder()
 markdown_writer = MarkdownWriter()
 version_service = VersionService()
+def doc_name(route):
+    """
+    Name the docs of a route are stored under.
+
+    Spring routes use Controller.method so equally named handlers of
+    different controllers (list, create, ...) do not overwrite each other.
+    """
+    return getattr(route, "doc_name", None) or getattr(route, "handler", None) or route.function
+
+
 def process_routes(routes, commit, repository):
 
     for route in routes:
-        print(f"Processing {route.function}...")
+        api_name = doc_name(route)
+        print(f"Processing {api_name}...")
         signature = signature_service.generate(route)
 
         should_create, version = version_service.should_create_version(
             repository,
-            route.function,
+            api_name,
             signature
         )
 
         if not should_create:
-            print(f"[SKIPPED] {route.function}")
+            print(f"[SKIPPED] {api_name}")
             continue
         
-        print(f"[PROCESSING] {route.function} - Version: {version}")
+        print(f"[PROCESSING] {api_name} - Version: {version}")
         explanation_raw = generator.generate_explanation(route)
 
         try:
@@ -46,14 +57,14 @@ def process_routes(routes, commit, repository):
 
         markdown_writer.write(
             repository=repository,
-            api_name=route.function,
+            api_name=api_name,
             version=version,
             content=documentation
         )
 
         version_service.save_version(
             repository=repository,
-            api_name=route.function,
+            api_name=api_name,
             version=version,
             signature=signature,
             commit_hash=commit,

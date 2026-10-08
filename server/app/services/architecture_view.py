@@ -96,7 +96,11 @@ def _view_node(node: dict) -> dict:
 
 def find_endpoint(model: dict, api: str, route: Optional[dict] = None) -> Optional[dict]:
     """Endpoint summary of an API (docs are keyed by handler method name)."""
-    candidates = [e for e in model.get("endpoints", []) if e["handler"].rsplit(".", 1)[-1] == api]
+    # docs are named Controller.method (scanner 2.0) or method (older docs)
+    candidates = [
+        e for e in model.get("endpoints", [])
+        if api in (e.get("doc_name"), e["handler"], e["handler"].rsplit(".", 1)[-1])
+    ]
 
     if route:
         exact = [e for e in candidates if e.get("handler") == route.get("handler")]

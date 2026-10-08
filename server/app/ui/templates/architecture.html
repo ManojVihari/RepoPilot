@@ -196,7 +196,7 @@
                 <thead><tr><th>Endpoint</th><th>Handler</th><th>Contract</th><th>Data</th><th>Calls / publishes</th></tr></thead>
                 <tbody>
                 {% for e in model.endpoints %}
-                {% set fn = e.handler.split('.')[-1] %}
+                {% set fn = e.doc_name if e.doc_name in documented else (e.handler if e.handler in documented else e.handler.split('.')[-1]) %}
                 <tr class="endpoint-row">
                     <td class="break-all"><span class="method m-{{ e.method }}">{{ e.method }}</span> <code>{{ e.path }}</code>
                         {% if e.secured %}<i class="fas fa-lock text-slate-400 ml-1" title="secured"></i>{% endif %}

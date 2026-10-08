@@ -10,12 +10,16 @@ def main():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--commit", required=True)
+    parser.add_argument("--commit", help="Commit to scan (endpoints impacted by it)")
+    parser.add_argument("--all", action="store_true", help="Every endpoint of the folder, no git needed")
     parser.add_argument("--repo", default=".")
     parser.add_argument("--server", help="DocAI server URL")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show debug logs")
 
     args = parser.parse_args()
+
+    if not args.commit and not args.all:
+        parser.error("either --commit or --all is required")
 
     # Logs go to stderr so stdout stays valid JSON.
     logging.basicConfig(
@@ -26,10 +30,13 @@ def main():
 
     scanner = Scanner()
 
-    result = scanner.scan(
-        repo_path=args.repo,
-        commit=args.commit
-    )
+    if args.all:
+        result = scanner.scan_full(args.repo, label=args.commit or "local")
+    else:
+        result = scanner.scan(
+            repo_path=args.repo,
+            commit=args.commit
+        )
 
     if args.server:
 

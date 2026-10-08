@@ -8,7 +8,26 @@ and sends the result to the DocAI server.
 pip install -e scanner
 docai-scan --repo . --commit "$GIT_COMMIT" --server https://docai.internal   # or omit --server to print JSON
 docai-scan --repo . --commit HEAD -v                                         # debug logs on stderr
+docai-scan --repo ~/code/my-service --all                                  # every endpoint, no git needed
 ```
+
+### Local testing: document a whole repository
+
+`scripts/document_local_repo.py` scans every endpoint of a local folder and
+generates the docs, versions and architecture model in-process, without CI,
+commits or a running server:
+
+```bash
+python scripts/document_local_repo.py ~/code/my-service                   # into server/docs + server/database
+python scripts/document_local_repo.py ~/code/my-service --no-llm \
+    --data-dir /tmp/docai --fresh                                         # no Ollama, throwaway folder, clean start
+python scripts/document_local_repo.py ~/code/my-service --server http://localhost:8000   # via a running server
+```
+
+It prints where the docs went and how to open them (`cd server && python run.py`,
+then `/ui/<name>` and `/ui/<name>/architecture`). Re-running only creates new
+versions for endpoints whose contract changed. Options: `--name`, `--label`,
+`--save-json`, `-v`.
 
 The scanner diffs `<commit>^..<commit>`. When the parent is not available
 (first commit, shallow clone) every tracked file counts as changed.

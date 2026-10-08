@@ -2,6 +2,8 @@
 REST endpoint extraction: mappings, parameters, request/response schemas,
 status codes, security and everything an endpoint reaches downstream.
 """
+import re
+from collections import Counter
 from typing import Dict, List, Optional, Set
 
 from .analyzer import MAPPING_ANNOTATIONS, SpringAnalyzer, dedupe
@@ -35,6 +37,17 @@ class EndpointExtractor:
         endpoints = []
         for controller in self.controllers():
             endpoints.extend(self.extract_controller(controller))
+
+        # Docs are stored per handler; overloaded handlers and handlers mapped
+        # to several HTTP methods get a stable name that includes method + path
+        counts = Counter((e["module"], e["handler"]) for e in endpoints)
+        for e in endpoints:
+            if counts[(e["module"], e["handler"])] > 1:
+                slug = re.sub(r"[^A-Za-z0-9]+", "_", e["path"]).strip("_") or "root"
+                e["doc_name"] = f"{e['handler']}-{e['method']}-{slug}"
+            else:
+                e["doc_name"] = e["handler"]
+
         return endpoints
 
     def extract_controller(self, controller: TypeInfo) -> List[dict]:

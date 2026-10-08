@@ -158,7 +158,7 @@ def test_spring_scan_is_documented_and_architecture_stored(client, isolated_stor
 
     assert client.post("/analyze", json=payload).status_code == 200
 
-    doc = docs_store.read_version("spring-shop", "create", 1)
+    doc = docs_store.read_version("spring-shop", "OrderController.create", 1)
     assert "| 402 | PAYMENT_REQUIRED | PaymentDeclinedException (ApiErrors.declined) |" in doc
     assert "**Messaging** (kafka): publish to `orders.created.v1` (OrderCreatedEvent)" in doc
     assert "**HTTP call** (rest_template): POST `https://api.payments.example.com/v1/charges/{id}`" in doc
@@ -205,18 +205,18 @@ def two_versions(client, isolated_storage, monkeypatch):
 
 
 def test_versions_store_structured_route_data(two_versions):
-    assert docs_store.list_versions("spring-shop", "create") == [1, 2]
+    assert docs_store.list_versions("spring-shop", "OrderController.create") == [1, 2]
     # response shape changed -> get/list got a new version too; cancel did not change
-    assert docs_store.list_versions("spring-shop", "get") == [1, 2]
-    assert docs_store.list_versions("spring-shop", "cancel") == [1]
+    assert docs_store.list_versions("spring-shop", "OrderController.get") == [1, 2]
+    assert docs_store.list_versions("spring-shop", "OrderController.cancel") == [1]
 
-    route = routes.version_service.get_route("spring-shop", "create", 2)
+    route = routes.version_service.get_route("spring-shop", "OrderController.create", 2)
     assert route["handler"] == "OrderController.create"
     assert route["integrations"]["external_apis"][0]["url"].endswith("/v2/charges/{id}")
 
 
 def test_impact_analysis_compares_versions(two_versions):
-    impact = two_versions.get("/api/impact-analysis", params={"repo": "spring-shop", "api": "create", "v1": 1, "v2": 2}).json()
+    impact = two_versions.get("/api/impact-analysis", params={"repo": "spring-shop", "api": "OrderController.create", "v1": 1, "v2": 2}).json()
 
     assert impact["source"] == "scanner"
     changes = [(c["severity"], c["type"], c["detail"]) for c in impact["breaking_changes"]["changes"]]
@@ -238,7 +238,7 @@ def test_impact_analysis_compares_versions(two_versions):
     graph_nodes = {n["id"] for n in impact["dependency_graph"]["nodes"]}
     assert {"table:orders", "topic:orders.created.v1", "service:api.payments.example.com"} <= graph_nodes
 
-    missing = two_versions.get("/api/impact-analysis", params={"repo": "spring-shop", "api": "cancel", "v1": 1, "v2": 2})
+    missing = two_versions.get("/api/impact-analysis", params={"repo": "spring-shop", "api": "OrderController.cancel", "v1": 1, "v2": 2})
     assert missing.status_code == 404
 
 
@@ -249,12 +249,12 @@ def test_architecture_and_dependency_pages_render(two_versions):
     assert "orders.created.v1" in page.text
     assert "api.payments.example.com" in page.text
 
-    deps = two_versions.get("/ui/spring-shop/create/dependencies", params={"v1": 1, "v2": 2})
+    deps = two_versions.get("/ui/spring-shop/OrderController.create/dependencies", params={"v1": 1, "v2": 2})
     assert deps.status_code == 200
     assert "Based on scanner data" in deps.text
     assert "REQUEST_FIELD_ADDED" in deps.text
 
-    assert two_versions.get("/ui/spring-shop/create").text.count('href="/ui/spring-shop/architecture"') == 1
+    assert two_versions.get("/ui/spring-shop/OrderController.create").text.count('href="/ui/spring-shop/architecture"') == 1
     assert two_versions.get("/ui/unknown-repo/architecture").status_code == 404
 
 

@@ -1,6 +1,7 @@
 import logging
 import subprocess
 import os
+from docai.core.files import iter_source_files
 from docai.core.plugin_manager import PluginManager
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,23 @@ class Scanner:
             logger.info("No changed files detected")
             return self._empty_result(repo_path, commit)
 
+        return self._run_plugins(repo_path, commit, changed_files, full=False)
+
+    def scan_full(self, repo_path, label="local"):
+        """
+        Every endpoint of a local folder, no git needed (local testing).
+
+        `label` is reported as the commit.
+        """
+        changed_files = [
+            os.path.relpath(path, repo_path).replace(os.sep, "/")
+            for ext in SOURCE_EXTENSIONS
+            for path in iter_source_files(repo_path, ext)
+        ]
+        logger.info("Full scan: %d source files", len(changed_files))
+        return self._run_plugins(repo_path, label, changed_files, full=True)
+
+    def _run_plugins(self, repo_path, commit, changed_files, full):
         plugins = self.plugin_manager.load_plugins()
 
         all_routes = []
@@ -37,11 +55,15 @@ class Scanner:
                 if plugin.detect(repo_path):
                     detected_frameworks.append(plugin.name)
 
-                    routes = plugin.extractor.process_repository(
-                        repo_path,
-                        changed_files,
-                        commit
-                    )
+                    all_routes_of = getattr(plugin.extractor, "all_routes", None)
+                    if full and all_routes_of is not None:
+                        routes = all_routes_of(repo_path)
+                    else:
+                        routes = plugin.extractor.process_repository(
+                            repo_path,
+                            changed_files,
+                            commit
+                        )
 
                     all_routes.extend(routes)
 
@@ -57,7 +79,7 @@ class Scanner:
 
         return {
             "scanner_version": SCANNER_VERSION,
-            "repository": os.path.basename(repo_path),
+            "repository": os.path.basename(os.path.abspath(repo_path)),
             "commit": commit,
             "frameworks": detected_frameworks,
             "routes": all_routes,

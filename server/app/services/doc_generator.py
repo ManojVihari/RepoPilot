@@ -1,6 +1,6 @@
 import requests
 import json
-from app.config import OLLAMA_URL, OLLAMA_MODEL
+from app.config import LLM_ENABLED, OLLAMA_URL, OLLAMA_MODEL
 
 
 class APIDocGenerator:
@@ -117,7 +117,7 @@ Source Code:
         # =========================
         # 🔥 LLM CALL + RETRY
         # =========================
-        for attempt in range(2):  # retry once if parsing fails
+        for attempt in range(2 if LLM_ENABLED else 0):  # retry once if parsing fails
             try:
                 response = requests.post(
                     self.ollama_url,
@@ -147,12 +147,15 @@ Source Code:
         # =========================
         # 🔥 FALLBACK (SMART)
         # =========================
+        direct_calls = (call_graph or {}).get("direct") if isinstance(call_graph, dict) else None
+        summary = getattr(route, "summary", None)
+
         return json.dumps({
-            "overview": f"Provides functionality for {function_name}",
+            "overview": summary or description or f"Provides functionality for {function_name}",
             "business_logic": "Processes request and interacts with underlying system components",
             "business_flow": [
-                f"Invoke {c}" for c in calls
-            ] if calls else [],
+                f"Invoke {c}" for c in (direct_calls or calls)
+            ] if (direct_calls or calls) else [],
             "response_description": "Returns result based on request processing",
             "change_impact": "Changes may affect dependent services and clients"
         })
