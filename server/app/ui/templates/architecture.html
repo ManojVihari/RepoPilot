@@ -1,375 +1,340 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Architecture - {{ repo }} - DocAI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <script src="https://d3js.org/d3.v7.min.js"></script>
-    <script src="/static/graph.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
-        * { font-family: 'Inter', sans-serif; }
-        h1, h2, h3 { font-family: 'Poppins', sans-serif; }
-        code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-        .graph-box { position: relative; background: linear-gradient(135deg, #f8fafc 0%, #f0f9ff 100%); border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
-        .graph-tooltip { position: absolute; display: none; max-width: 420px; background: #0f172a; color: #f8fafc; font-size: 12px; padding: 8px 10px; border-radius: 6px; pointer-events: none; z-index: 10; word-break: break-all; }
-        .graph-node-label { font-size: 11px; fill: #334155; text-anchor: middle; pointer-events: none; }
-        .graph-link-label { font-size: 9px; fill: #94a3b8; text-anchor: middle; pointer-events: none; }
-        .tab-btn.active { color: #1d4ed8; border-color: #2563eb; }
-        .method { display: inline-block; min-width: 58px; text-align: center; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
-        .m-GET { background: #dbeafe; color: #1e40af; } .m-POST { background: #dcfce7; color: #166534; }
-        .m-PUT { background: #fef3c7; color: #92400e; } .m-PATCH { background: #fae8ff; color: #86198f; }
-        .m-DELETE { background: #fee2e2; color: #991b1b; } .m-ANY { background: #e2e8f0; color: #334155; }
-        .chip { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 9999px; background: #f1f5f9; color: #334155; margin: 2px 2px 2px 0; }
-        .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 9999px; margin-right: 4px; vertical-align: middle; }
-        th { text-align: left; font-weight: 600; color: #475569; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
-        td, th { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
-    </style>
-</head>
-<body class="bg-slate-50">
-
-<div class="bg-white border-b border-slate-200 sticky top-0 z-40">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div class="flex items-center gap-2 text-sm">
-            <a href="/ui" class="text-blue-600 hover:text-blue-700 flex items-center gap-1"><i class="fas fa-home"></i> Home</a>
-            <span class="text-slate-400">/</span>
-            <a href="/ui/{{ repo }}" class="text-blue-600 hover:text-blue-700">{{ repo }}</a>
-            <span class="text-slate-400">/</span>
-            <span class="text-slate-600 font-semibold">Architecture</span>
-        </div>
-        <a href="/api/architecture?repo={{ repo }}" class="text-slate-600 hover:text-slate-900 text-sm flex items-center gap-2">
-            <i class="fas fa-code"></i> Raw JSON
-        </a>
-    </div>
-</div>
-
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon, method, stat, breadcrumbs %}
+{% block title %}Architecture · {{ repo }}{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+{% block head %}<script src="/static/vendor/d3.min.js"></script><script src="/static/graph.js"></script>{% endblock %}
+{% block content %}
 {% set s = model.summary %}
 {% set documented = apis | map(attribute='name') | list %}
 
-<div class="max-w-7xl mx-auto px-4 py-8">
-
-    <div class="mb-6">
-        <h1 class="text-3xl font-bold text-slate-900 mb-1">{{ repo }} architecture</h1>
-        <p class="text-slate-600 text-sm">
-            {{ s.architecture_style | capitalize }} · scanned at commit <code>{{ commit }}</code>
-            {% if s.spring_boot_apps %} · Spring Boot apps: {{ s.spring_boot_apps | join(', ') }}{% endif %}
-        </p>
+{{ breadcrumbs([('Home', '/'), (repo, '/ui/' ~ repo), ('Architecture', None)]) }}
+<div class="page-header">
+    <div>
+        <div class="eyebrow">Architecture</div>
+        <h1>{{ repo }} architecture</h1>
+        <p class="lead">{{ (s.architecture_style or '') | capitalize }} · scanned at <code>{{ commit }}</code>{% if s.spring_boot_apps %} · {{ s.spring_boot_apps | join(', ') }}{% endif %}</p>
     </div>
-
-    <!-- Summary -->
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
-        {% for label, value, icon in [
-            ('Modules', s.modules, 'fa-cubes'), ('Endpoints', s.endpoints, 'fa-plug'),
-            ('Components', s.components.values() | sum, 'fa-puzzle-piece'), ('Entities', s.entities, 'fa-table'),
-            ('Repositories', s.repositories, 'fa-database'), ('Listeners', s.message_listeners, 'fa-envelope-open-text')] %}
-        <div class="bg-white p-4 rounded-lg border border-slate-200">
-            <div class="text-slate-500 text-xs font-semibold mb-1"><i class="fas {{ icon }} mr-1"></i>{{ label }}</div>
-            <div class="text-2xl font-bold text-slate-900">{{ value }}</div>
-        </div>
-        {% endfor %}
-    </div>
-
-    <!-- Tech stack -->
-    {% if s.technologies %}
-    <div class="bg-white rounded-lg border border-slate-200 p-4 mb-6">
-        <div class="text-sm font-semibold text-slate-700 mb-2">Technology stack</div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-2">
-            {% for category, techs in s.technologies.items() %}
-            <div><span class="text-xs text-slate-500 uppercase mr-1">{{ category }}</span>
-                {% for t in techs %}<span class="chip">{{ t }}</span>{% endfor %}</div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Tabs -->
-    <div class="border-b border-slate-200 mb-6 flex flex-wrap gap-1 text-sm">
-        {% for tab, label in [('system', 'System map'), ('components', 'Components'), ('modules', 'Modules'),
-                              ('endpoints', 'Endpoints'), ('data', 'Data'), ('messaging', 'Messaging & jobs'),
-                              ('external', 'External APIs'), ('security', 'Security')] %}
-        <button class="tab-btn px-4 py-2 border-b-2 border-transparent text-slate-600 hover:text-slate-900 font-medium {% if loop.first %}active{% endif %}"
-                data-tab="{{ tab }}">{{ label }}</button>
-        {% endfor %}
-    </div>
-
-    <!-- System map -->
-    <section class="tab-panel" id="tab-system">
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <p class="text-sm text-slate-600">Modules and every system they talk to. Hover nodes and edges for details; scroll to zoom, drag to rearrange. Click a module to see its components.</p>
-            <label class="text-sm text-slate-600 flex items-center gap-2">
-                <input type="checkbox" id="show-infra"> Show shared infrastructure (config server, discovery, identity provider)
-            </label>
-        </div>
-        <div id="system-graph" class="graph-box"></div>
-        <div class="mt-3 text-xs text-slate-600 flex flex-wrap gap-4">
-            {% for type, label in [('module', 'Module / service'), ('datastore', 'Datastore'), ('cache', 'Cache'), ('broker', 'Message broker'),
-                                   ('external_service', 'External service'), ('infrastructure', 'Infrastructure'), ('storage', 'Storage')] %}
-            <span><span class="legend-dot" data-color="{{ type }}"></span>{{ label }}</span>
-            {% endfor %}
-        </div>
-    </section>
-
-    <!-- Components -->
-    <section class="tab-panel hidden" id="tab-components">
-        <div class="flex items-center gap-3 mb-3 text-sm">
-            <label class="text-slate-600">Module</label>
-            <select id="component-module" class="border border-slate-300 rounded px-2 py-1">
-                {% for m in model.modules if not m.aggregator and m.type_counts %}
-                <option value="{{ m.path }}">{{ m.runtime.application_name or m.name }}</option>
-                {% endfor %}
-            </select>
-            <span class="text-slate-500">Beans, their injected dependencies, resolved calls and the systems they use.</span>
-        </div>
-        <div id="component-graph" class="graph-box"></div>
-        <div class="bg-white rounded-lg border border-slate-200 mt-4 overflow-x-auto">
-            <table class="w-full text-sm" id="component-table">
-                <thead><tr><th>Component</th><th>Stereotype</th><th>Module</th><th>Depends on</th><th>Uses</th></tr></thead>
-                <tbody>
-                {% for c in model.components %}
-                <tr data-module="{{ c.module }}">
-                    <td><div class="font-medium text-slate-900">{{ c.name }}</div>
-                        {% if c.description %}<div class="text-xs text-slate-500">{{ c.description[:160] }}</div>{% endif %}
-                        <div class="text-xs text-slate-400 mono">{{ c.file }}:{{ c.line }}</div></td>
-                    <td><span class="chip">{{ c.stereotype }}</span></td>
-                    <td class="text-slate-600">{{ c.module or '(root)' }}</td>
-                    <td class="text-xs">{% for d in c.dependencies %}<div>{{ d.field }}: <span class="mono">{{ d.type }}</span>{% if d.implementations %} → {% for impl in d.implementations %}{{ impl.split('.')[-1] }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}{% if d.client %} <span class="chip">{{ d.client }}</span>{% endif %}</div>{% endfor %}</td>
-                    <td class="text-xs">{% for i in c.integrations or [] %}<span class="chip">{{ i }}</span>{% endfor %}</td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
-
-    <!-- Modules -->
-    <section class="tab-panel hidden" id="tab-modules">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {% for m in model.modules if not m.aggregator %}
-            {% set r = m.runtime %}
-            <div class="bg-white rounded-lg border border-slate-200 p-5">
-                <div class="flex items-start justify-between mb-2">
-                    <div>
-                        <h3 class="text-lg font-semibold text-slate-900">{{ r.application_name or m.name }}</h3>
-                        <div class="text-xs text-slate-500 mono">{{ m.path or '(root)' }} · {{ m.build_tool }}{% if m.version %} · {{ m.version }}{% endif %}</div>
-                    </div>
-                    <div class="text-right text-xs text-slate-600">
-                        {% if r.server_port %}<div>port <b>{{ r.server_port }}</b></div>{% endif %}
-                        {% if r.context_path %}<div>context <code>{{ r.context_path }}</code></div>{% endif %}
-                        <div>{{ m.endpoint_count }} endpoint{{ '' if m.endpoint_count == 1 else 's' }}</div>
-                    </div>
-                </div>
-                <div class="text-xs text-slate-600 mb-2">
-                    {% if m.java_version %}Java {{ m.java_version }} · {% endif %}
-                    {% if m.spring_boot_version %}Spring Boot {{ m.spring_boot_version }}{% endif %}
-                    {% if m.spring_cloud_version %} · Spring Cloud {{ m.spring_cloud_version }}{% endif %}
-                    {% if m.main_class %}<div class="mono text-slate-400">{{ m.main_class }}</div>{% endif %}
-                </div>
-                <dl class="text-xs space-y-1">
-                    {% for ds in r.datasources or [] %}<div><dt class="inline font-semibold">Datasource ({{ ds.profile }}):</dt> <dd class="inline">{{ ds.type }}{% if ds.host %} @ {{ ds.host }}{% endif %}{% if ds.database %}/{{ ds.database }}{% endif %}</dd></div>{% endfor %}
-                    {% if r.mongodb %}<div><dt class="inline font-semibold">MongoDB:</dt> <dd class="inline">{{ r.mongodb.host or r.mongodb.uri }}{% if r.mongodb.database %}/{{ r.mongodb.database }}{% endif %}</dd></div>{% endif %}
-                    {% if r.redis %}<div><dt class="inline font-semibold">Redis:</dt> <dd class="inline">{{ r.redis.host or r.redis.url or r.redis.cluster_nodes }}</dd></div>{% endif %}
-                    {% if r.kafka %}<div><dt class="inline font-semibold">Kafka:</dt> <dd class="inline">{{ r.kafka.bootstrap_servers }}</dd></div>{% endif %}
-                    {% if r.rabbitmq %}<div><dt class="inline font-semibold">RabbitMQ:</dt> <dd class="inline">{{ r.rabbitmq.host }}</dd></div>{% endif %}
-                    {% if r.service_discovery %}<div><dt class="inline font-semibold">Discovery:</dt> <dd class="inline">{{ r.service_discovery.type }} {{ r.service_discovery.url or '' }}</dd></div>{% endif %}
-                    {% if r.config_server %}<div><dt class="inline font-semibold">Config server:</dt> <dd class="inline">{{ r.config_server }}</dd></div>{% endif %}
-                    {% if r.identity_provider %}<div><dt class="inline font-semibold">Identity provider:</dt> <dd class="inline">{{ r.identity_provider }}</dd></div>{% endif %}
-                    {% for route in r.gateway_routes or [] %}<div><dt class="inline font-semibold">Route {{ route.id }}:</dt> <dd class="inline">{{ (route.predicates or [route.path]) | join(', ') }} → {{ route.uri or route.service_id or route.url }}</dd></div>{% endfor %}
-                    {% for key, url in (r.external_urls or {}).items() %}<div><dt class="inline font-semibold">{{ key }}:</dt> <dd class="inline break-all">{{ url }}</dd></div>{% endfor %}
-                </dl>
-                {% if m.technologies %}<div class="mt-3">{% for t in m.technologies %}<span class="chip">{{ t }}</span>{% endfor %}</div>{% endif %}
-            </div>
-        {% endfor %}
-        </div>
-    </section>
-
-    <!-- Endpoints -->
-    <section class="tab-panel hidden" id="tab-endpoints">
-        <div class="flex items-center gap-3 mb-3 text-sm">
-            <input id="endpoint-filter" type="search" placeholder="Filter by path, handler, table, topic…" class="border border-slate-300 rounded px-3 py-1.5 w-96">
-            <span class="text-slate-500" id="endpoint-count"></span>
-        </div>
-        <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto">
-            <table class="w-full text-sm table-fixed break-words">
-                <colgroup><col style="width:24%"><col style="width:22%"><col style="width:22%"><col style="width:16%"><col style="width:16%"></colgroup>
-                <thead><tr><th>Endpoint</th><th>Handler</th><th>Contract</th><th>Data</th><th>Calls / publishes</th></tr></thead>
-                <tbody>
-                {% for e in model.endpoints %}
-                {% set fn = e.doc_name if e.doc_name in documented else (e.handler if e.handler in documented else e.handler.split('.')[-1]) %}
-                <tr class="endpoint-row">
-                    <td class="break-all"><span class="method m-{{ e.method }}">{{ e.method }}</span> <code>{{ e.path }}</code>
-                        {% if e.secured %}<i class="fas fa-lock text-slate-400 ml-1" title="secured"></i>{% endif %}
-                        <div class="text-xs text-slate-400">{{ e.module or '(root)' }}</div></td>
-                    <td class="break-words">{% if fn in documented %}<a class="text-blue-600 hover:underline" href="/ui/{{ repo }}/{{ fn }}">{{ titles.get(fn) or e.handler }}</a>{% if titles.get(fn) %}<div class="text-xs text-slate-400 mono">{{ e.handler }}</div>{% endif %}{% else %}{{ e.handler }}{% endif %}
-                        {% if e.summary %}<div class="text-xs text-slate-500">{{ e.summary[:120] }}</div>{% endif %}</td>
-                    <td class="text-xs break-all">{% if e.request_body %}<div>in: <span class="mono">{{ e.request_body }}</span></div>{% endif %}
-                        {% if e.response %}<div>out: <span class="mono">{{ e.response }}</span></div>{% endif %}
-                        <div>{% for c in e.status_codes %}<span class="chip">{{ c }}</span>{% endfor %}</div></td>
-                    <td class="text-xs">{% for t in e.tables %}<span class="chip"><i class="fas fa-table mr-1"></i>{{ t }}</span>{% endfor %}
-                        {% for c in e.caches %}<span class="chip"><i class="fas fa-bolt mr-1"></i>{{ c }}</span>{% endfor %}</td>
-                    <td class="text-xs">{% for x in e.calls_external %}<span class="chip"><i class="fas fa-globe mr-1"></i>{{ x }}</span>{% endfor %}
-                        {% for p in e.publishes %}<span class="chip"><i class="fas fa-paper-plane mr-1"></i>{{ p }}</span>{% endfor %}</td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
-
-    <!-- Data -->
-    <section class="tab-panel hidden" id="tab-data">
-        {% set dm = model.data_model %}
-        <h2 class="text-lg font-semibold mb-2">Tables & collections</h2>
-        <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto mb-6">
-            <table class="w-full text-sm">
-                <thead><tr><th>Table</th><th>Store</th><th>Entities</th><th>Operations</th><th>Accessed by</th></tr></thead>
-                <tbody>{% for t in dm.tables %}
-                <tr><td><code>{{ t.name }}</code></td><td>{{ t.store }}</td><td>{{ t.entities | join(', ') }}</td>
-                    <td>{% for op in t.operations %}<span class="chip">{{ op }}</span>{% endfor %}</td>
-                    <td class="text-xs text-slate-600">{{ t.accessed_by[:8] | join(', ') }}{% if t.accessed_by | length > 8 %} … +{{ t.accessed_by | length - 8 }}{% endif %}</td></tr>
-                {% endfor %}</tbody>
-            </table>
-        </div>
-
-        <h2 class="text-lg font-semibold mb-2">Entities</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-        {% for en in dm.entities %}
-            <details class="bg-white rounded-lg border border-slate-200 p-4">
-                <summary class="cursor-pointer"><b>{{ en.name }}</b> → <code>{{ en.table }}</code>
-                    <span class="text-xs text-slate-500">({{ en.store }}{% if en.table_inferred %}, table name inferred{% endif %}, {{ en.fields | length }} fields)</span></summary>
-                <table class="w-full text-xs mt-2">
-                    {% for f in en.fields %}<tr><td class="mono">{{ f.name }}{% if f.id %} 🔑{% endif %}</td><td class="mono">{{ f.type }}</td>
-                        <td>{{ f.column or '' }}{% if f.relationship %} <span class="chip">{{ f.relationship }}</span>{% endif %}{% if f.nullable == false %} <span class="chip">not null</span>{% endif %}</td></tr>{% endfor %}
-                </table>
-                {% for r in en.relationships %}<div class="text-xs mt-1">{{ r.type }} <b>{{ r.field }}</b> → {{ r.target }}{% if r.mapped_by %} (mapped by {{ r.mapped_by }}){% endif %}</div>{% endfor %}
-            </details>
-        {% else %}<p class="text-sm text-slate-500">No JPA/Mongo entities found.</p>{% endfor %}
-        </div>
-
-        <h2 class="text-lg font-semibold mb-2">Repositories & mappers</h2>
-        <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead><tr><th>Repository</th><th>Store</th><th>Entity</th><th>Custom queries</th></tr></thead>
-                <tbody>{% for r in dm.repositories %}
-                <tr><td>{{ r.name }}<div class="text-xs text-slate-400">{{ r.module or '(root)' }}</div></td><td>{{ r.store }}</td><td>{{ r.entity or '' }}</td>
-                    <td class="text-xs">{% for q in r.custom_queries[:6] %}<div><b>{{ q.method }}</b> <span class="chip">{{ q.operation }}</span> <span class="mono text-slate-500">{{ (q.query or '')[:140] }}</span></div>{% endfor %}
-                        {% if r.custom_queries | length > 6 %}<div class="text-slate-400">… +{{ r.custom_queries | length - 6 }} more</div>{% endif %}</td></tr>
-                {% endfor %}</tbody>
-            </table>
-        </div>
-    </section>
-
-    <!-- Messaging -->
-    <section class="tab-panel hidden" id="tab-messaging">
-        {% set integ = model.integrations %}
-        <h2 class="text-lg font-semibold mb-2">Destinations</h2>
-        <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto mb-6">
-            <table class="w-full text-sm">
-                <thead><tr><th>Technology</th><th>Destination</th><th>Producers</th><th>Consumers</th></tr></thead>
-                <tbody>{% for d in integ.messaging.destinations %}
-                <tr><td>{{ d.technology }}</td><td><code>{{ d.destination }}</code></td>
-                    <td class="text-xs">{{ d.producers | join(', ') or '—' }}</td><td class="text-xs">{{ d.consumers | join(', ') or '—' }}</td></tr>
-                {% else %}<tr><td colspan="4" class="text-slate-500">No messaging detected.</td></tr>{% endfor %}</tbody>
-            </table>
-        </div>
-
-        <h2 class="text-lg font-semibold mb-2">Internal events</h2>
-        <div class="bg-white rounded-lg border border-slate-200 p-4 mb-6 text-sm">
-            {% for e in integ.events.published %}<div>{{ e.source }} publishes <code>{{ e.event_type }}</code></div>{% endfor %}
-            {% for l in integ.events.listeners %}<div>{{ l.handler }} listens to <code>{{ l.destinations | join(', ') }}</code>{% if l.async %} (async){% endif %}</div>{% endfor %}
-            {% if not integ.events.published and not integ.events.listeners %}<span class="text-slate-500">No Spring application events.</span>{% endif %}
-        </div>
-
-        <h2 class="text-lg font-semibold mb-2">Scheduled jobs</h2>
-        <div class="bg-white rounded-lg border border-slate-200 p-4 text-sm">
-            {% for j in integ.scheduled_jobs %}<div><b>{{ j.handler }}</b> {% for k, v in j.schedule.items() %}<span class="chip">{{ k }}: {{ v }}</span>{% endfor %} <span class="text-xs text-slate-400">{{ j.module }}</span></div>
-            {% else %}<span class="text-slate-500">No @Scheduled methods.</span>{% endfor %}
-        </div>
-    </section>
-
-    <!-- External -->
-    <section class="tab-panel hidden" id="tab-external">
-        <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto mb-6">
-            <table class="w-full text-sm">
-                <thead><tr><th>Target</th><th>Call</th><th>Client</th><th>From</th></tr></thead>
-                <tbody>{% for f in model.integrations.external_apis | sort(attribute='source') %}
-                <tr><td>{{ f.target_service or f.host or 'unresolved' }}{% if f.target_module is defined and f.target_module is not none %} <span class="chip">internal</span>{% endif %}</td>
-                    <td class="text-xs"><span class="method m-{{ f.http_method or 'ANY' }}">{{ f.http_method or '?' }}</span> <code class="break-all">{{ f.url or '' }}</code>{% if f.base_url %}<div class="text-slate-400">base {{ f.base_url }}</div>{% endif %}</td>
-                    <td>{{ f.client }}{% if f.feign_client %} ({{ f.feign_client }}){% endif %}</td>
-                    <td class="text-xs">{{ f.source }}<div class="text-slate-400">{{ f.module or '(root)' }}</div></td></tr>
-                {% else %}<tr><td colspan="4" class="text-slate-500">No outbound HTTP calls detected.</td></tr>{% endfor %}</tbody>
-            </table>
-        </div>
-        {% if model.integrations.storage or model.integrations.email %}
-        <div class="bg-white rounded-lg border border-slate-200 p-4 text-sm">
-            {% for f in model.integrations.storage %}<div>Storage ({{ f.technology }}): {{ f.operation }} {{ f.bucket or '' }} in {{ f.source }}</div>{% endfor %}
-            {% for f in model.integrations.email %}<div>Email: {{ f.call }} in {{ f.source }}</div>{% endfor %}
-        </div>
-        {% endif %}
-    </section>
-
-    <!-- Security -->
-    <section class="tab-panel hidden" id="tab-security">
-        {% set sec = model.security %}
-        <div class="bg-white rounded-lg border border-slate-200 p-4 mb-4 text-sm">
-            <div><b>Enabled:</b> {{ 'yes' if sec.enabled else 'no' }}{% if sec.csrf_disabled %} · CSRF disabled{% endif %}</div>
-            <div><b>Technologies:</b> {% for t in sec.technologies %}<span class="chip">{{ t }}</span>{% endfor %}</div>
-            <div><b>Mechanisms:</b> {% for t in sec.mechanisms %}<span class="chip">{{ t }}</span>{% endfor %}</div>
-            <div><b>Endpoints with method-level security:</b> {{ sec.endpoints_with_method_security }}</div>
-        </div>
-        <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto mb-4">
-            <table class="w-full text-sm">
-                <thead><tr><th>Patterns</th><th>Method</th><th>Access</th><th>Module</th><th>Defined in</th></tr></thead>
-                <tbody>{% for r in sec.url_rules %}
-                <tr><td><code>{{ r.patterns | join(', ') }}</code></td><td>{{ r.http_method or 'any' }}</td>
-                    <td>{{ r.access }}{% if r.roles %} {{ r.roles | join(', ') }}{% endif %}</td><td>{{ r.module or '(root)' }}</td><td class="text-xs">{{ r.defined_in }}</td></tr>
-                {% else %}<tr><td colspan="5" class="text-slate-500">No URL security rules found.</td></tr>{% endfor %}</tbody>
-            </table>
-        </div>
-        <h2 class="text-lg font-semibold mb-2">Exception handling</h2>
-        <div class="bg-white rounded-lg border border-slate-200 overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead><tr><th>Exception</th><th>Status</th><th>Mapped by</th></tr></thead>
-                <tbody>{% for x in model.exception_handling %}
-                <tr><td class="mono">{{ x.exception }}</td><td>{{ x.status or '—' }}</td><td class="text-xs">{{ x.handler or x.source }}</td></tr>
-                {% else %}<tr><td colspan="3" class="text-slate-500">No exception mappings.</td></tr>{% endfor %}</tbody>
-            </table>
-        </div>
-    </section>
+    <a class="btn btn-ghost btn-sm" href="/api/architecture?repo={{ repo }}">{{ icon('code') }} Raw JSON</a>
 </div>
 
+<div class="grid grid-stats">
+    {{ stat('Modules', s.modules) }}
+    {{ stat('Endpoints', s.endpoints) }}
+    {{ stat('Components', s.components.values() | sum) }}
+    {{ stat('Entities', s.entities) }}
+    {{ stat('Message listeners', s.message_listeners) }}
+</div>
+
+{% if s.technologies %}
+<details class="disclosure" style="margin-top:16px">
+    <summary>Technology stack <span class="badge">{{ s.technologies.values() | map('length') | sum }}</span></summary>
+    <div class="disclosure-body">
+        <dl class="kv">
+            {% for category, techs in s.technologies.items() %}
+            <dt>{{ category | replace('-', ' ') | capitalize }}</dt><dd><div class="chips">{% for t in techs %}<span class="chip">{{ t }}</span>{% endfor %}</div></dd>
+            {% endfor %}
+        </dl>
+    </div>
+</details>
+{% endif %}
+
+<div class="tabs" role="tablist" aria-label="Architecture views" style="margin:28px 0 20px">
+    {% for key, label in [('system', 'System map'), ('components', 'Components'), ('modules', 'Modules'), ('endpoints', 'Endpoints'), ('data', 'Data'), ('messaging', 'Messaging & jobs'), ('external', 'External APIs'), ('security', 'Security')] %}
+    <button role="tab" id="tab-{{ key }}" aria-controls="panel-{{ key }}" aria-selected="{{ 'true' if loop.first else 'false' }}" {% if not loop.first %}tabindex="-1"{% endif %} data-tab="{{ key }}">{{ label }}</button>
+    {% endfor %}
+</div>
+
+<!-- System map -->
+<section role="tabpanel" id="panel-system" aria-labelledby="tab-system">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+        <p class="small muted">Services and every system they talk to. Hover for details, scroll to zoom, select a module to see its components.</p>
+        <label class="small row" style="font-weight:400"><input type="checkbox" id="show-infra"> Show shared infrastructure</label>
+    </div>
+    <div id="system-graph" class="graph-box" role="img" aria-label="System map of {{ repo }}: modules, data stores, brokers and external services"></div>
+    <div class="legend">
+        {% for type, label in [('module', 'Module'), ('datastore', 'Datastore'), ('cache', 'Cache'), ('broker', 'Broker'), ('external_service', 'External service'), ('infrastructure', 'Infrastructure')] %}
+        <span><span class="legend-dot" data-color="{{ type }}"></span>{{ label }}</span>
+        {% endfor %}
+    </div>
+</section>
+
+<!-- Components -->
+<section role="tabpanel" id="panel-components" aria-labelledby="tab-components" hidden>
+    <div class="row" style="margin-bottom:10px">
+        <label for="component-module" class="small">Module</label>
+        <select id="component-module">
+            {% for m in model.modules if not m.aggregator and m.type_counts %}
+            <option value="{{ m.path }}">{{ m.runtime.application_name or m.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div id="component-graph" class="graph-box" role="img" aria-label="Components of the selected module and the systems they use"></div>
+    <div class="card" style="margin-top:16px">
+        <div class="table-wrap">
+        <table class="table" id="component-table">
+            <caption class="sr-only">Components of the selected module</caption>
+            <thead><tr><th scope="col">Component</th><th scope="col">Role</th><th scope="col">Depends on</th><th scope="col">Uses</th></tr></thead>
+            <tbody>
+            {% for c in model.components %}
+            <tr data-module="{{ c.module }}">
+                <td><strong>{{ c.name }}</strong>{% if c.description %}<div class="xs muted">{{ c.description[:140] }}</div>{% endif %}<div class="xs faint mono">{{ c.file }}:{{ c.line }}</div></td>
+                <td><span class="badge">{{ c.stereotype | replace('_', ' ') }}</span></td>
+                <td class="xs">{% for d in c.dependencies %}<div>{{ d.field }}: <span class="mono">{{ d.type }}</span>{% if d.implementations %} → {% for impl in d.implementations %}{{ impl.split('.')[-1] }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</div>{% endfor %}</td>
+                <td><div class="chips">{% for i in c.integrations or [] %}<span class="chip">{{ i }}</span>{% endfor %}</div></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</section>
+
+<!-- Modules -->
+<section role="tabpanel" id="panel-modules" aria-labelledby="tab-modules" hidden>
+    <div class="grid grid-2">
+    {% for m in model.modules if not m.aggregator %}
+        {% set r = m.runtime %}
+        <article class="card card-body">
+            <div class="row" style="justify-content:space-between;align-items:flex-start">
+                <div>
+                    <h3>{{ r.application_name or m.name }}</h3>
+                    <p class="xs faint mono">{{ m.path or '(root)' }} · {{ m.build_tool }}{% if m.version %} · {{ m.version }}{% endif %}</p>
+                </div>
+                <span class="badge">{{ m.endpoint_count }} endpoint{{ '' if m.endpoint_count == 1 else 's' }}</span>
+            </div>
+            <dl class="kv small" style="margin-top:12px">
+                {% if r.server_port %}<dt>Port</dt><dd>{{ r.server_port }}</dd>{% endif %}
+                {% if r.context_path %}<dt>Context path</dt><dd><code>{{ r.context_path }}</code></dd>{% endif %}
+                {% if m.java_version or m.spring_boot_version %}<dt>Runtime</dt><dd>{% if m.java_version %}Java {{ m.java_version }}{% endif %}{% if m.spring_boot_version %} · Spring Boot {{ m.spring_boot_version }}{% endif %}</dd>{% endif %}
+                {% for ds in r.datasources or [] %}<dt>Database{% if ds.profile != 'default' %} ({{ ds.profile }}){% endif %}</dt><dd>{{ ds.type }}{% if ds.host %} @ {{ ds.host }}{% endif %}{% if ds.database %}/{{ ds.database }}{% endif %}</dd>{% endfor %}
+                {% if r.mongodb %}<dt>MongoDB</dt><dd>{{ r.mongodb.host or r.mongodb.uri }}{% if r.mongodb.database %}/{{ r.mongodb.database }}{% endif %}</dd>{% endif %}
+                {% if r.redis %}<dt>Redis</dt><dd>{{ r.redis.host or r.redis.url or r.redis.cluster_nodes }}</dd>{% endif %}
+                {% if r.kafka %}<dt>Kafka</dt><dd>{{ r.kafka.bootstrap_servers }}</dd>{% endif %}
+                {% if r.rabbitmq %}<dt>RabbitMQ</dt><dd>{{ r.rabbitmq.host }}</dd>{% endif %}
+                {% if r.service_discovery %}<dt>Discovery</dt><dd>{{ r.service_discovery.type }}</dd>{% endif %}
+                {% if r.config_server %}<dt>Config server</dt><dd class="break">{{ r.config_server }}</dd>{% endif %}
+                {% for route in r.gateway_routes or [] %}<dt>Route {{ route.id }}</dt><dd class="break">{{ (route.predicates or [route.path]) | join(', ') }} → {{ route.uri or route.service_id or route.url }}</dd>{% endfor %}
+                {% for key, url in (r.external_urls or {}).items() %}<dt class="break">{{ key }}</dt><dd class="break">{{ url }}</dd>{% endfor %}
+            </dl>
+            {% if m.technologies %}<details style="margin-top:10px"><summary class="small muted" style="cursor:pointer">{{ m.technologies | length }} technologies</summary><div class="chips" style="margin-top:8px">{% for t in m.technologies %}<span class="chip">{{ t }}</span>{% endfor %}</div></details>{% endif %}
+        </article>
+    {% endfor %}
+    </div>
+</section>
+
+<!-- Endpoints -->
+<section role="tabpanel" id="panel-endpoints" aria-labelledby="tab-endpoints" hidden>
+    <div class="row" style="margin-bottom:10px">
+        <label class="sr-only" for="endpoint-filter">Filter endpoints</label>
+        <input id="endpoint-filter" type="search" placeholder="Filter by path, handler, table, topic…" autocomplete="off" style="flex:1;max-width:420px">
+        <span class="small muted" id="endpoint-count" aria-live="polite"></span>
+    </div>
+    <div class="card">
+        <div class="table-wrap">
+        <table class="table" style="table-layout:fixed">
+            <caption class="sr-only">All endpoints with the data and services they reach</caption>
+            <colgroup><col style="width:28%"><col style="width:24%"><col style="width:18%"><col style="width:15%"><col style="width:15%"></colgroup>
+            <thead><tr><th scope="col">Endpoint</th><th scope="col">API</th><th scope="col">Contract</th><th scope="col">Data</th><th scope="col">Calls & events</th></tr></thead>
+            <tbody>
+            {% for e in model.endpoints %}
+            {% set fn = e.doc_name if e.doc_name in documented else (e.handler if e.handler in documented else e.handler.split('.')[-1]) %}
+            <tr class="endpoint-row">
+                <td class="break">{{ method(e.method) }} <code>{{ e.path }}</code>{% if e.secured %} <span class="xs faint">{{ icon('lock') }}<span class="sr-only">secured</span></span>{% endif %}<div class="xs faint">{{ e.module or '(root)' }}</div></td>
+                <td class="break">{% if fn in documented %}<a href="/ui/{{ repo }}/{{ fn }}">{{ titles.get(fn) or e.handler }}</a>{% if titles.get(fn) %}<div class="xs faint mono">{{ e.handler }}</div>{% endif %}{% else %}{{ e.handler }}{% endif %}</td>
+                <td class="xs break">{% if e.request_body %}<div>in <span class="mono">{{ e.request_body }}</span></div>{% endif %}{% if e.response %}<div>out <span class="mono">{{ e.response }}</span></div>{% endif %}<div class="faint">{{ e.status_codes | join(' · ') }}</div></td>
+                <td><div class="chips">{% for t in e.tables %}<span class="chip">{{ t }}</span>{% endfor %}{% for c in e.caches %}<span class="chip">cache {{ c }}</span>{% endfor %}</div></td>
+                <td><div class="chips">{% for x in e.calls_external %}<span class="chip">→ {{ x }}</span>{% endfor %}{% for p in e.publishes %}<span class="chip">⇢ {{ p }}</span>{% endfor %}</div></td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</section>
+
+<!-- Data -->
+<section role="tabpanel" id="panel-data" aria-labelledby="tab-data" hidden>
+    {% set dm = model.data_model %}
+    <div class="stack-lg">
+        <div class="card">
+            <div class="card-header"><h3>Tables & collections</h3><span class="xs faint">{{ dm.tables | length }}</span></div>
+            <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th scope="col">Table</th><th scope="col">Store</th><th scope="col">Operations</th><th scope="col">Used by</th></tr></thead>
+                <tbody>{% for t in dm.tables %}
+                <tr><td><code>{{ t.name }}</code>{% if t.entities %}<div class="xs faint">{{ t.entities | join(', ') }}</div>{% endif %}</td><td class="small">{{ t.store }}</td>
+                    <td><div class="chips">{% for op in t.operations %}<span class="badge {{ {'WRITE': 'badge-warn', 'DELETE': 'badge-danger', 'READ': 'badge-accent'}.get(op, '') }}">{{ op | lower }}</span>{% endfor %}</div></td>
+                    <td class="xs muted">{{ t.accessed_by[:6] | join(', ') }}{% if t.accessed_by | length > 6 %} +{{ t.accessed_by | length - 6 }}{% endif %}</td></tr>
+                {% endfor %}</tbody>
+            </table>
+            </div>
+        </div>
+
+        {% if dm.entities %}
+        <div>
+            <h3 style="margin-bottom:12px">Entities</h3>
+            {% for en in dm.entities %}
+            <details class="disclosure">
+                <summary>{{ en.name }} <span class="xs faint" style="font-weight:400">→ {{ en.table }} · {{ en.store }} · {{ en.fields | length }} fields</span></summary>
+                <div class="disclosure-body">
+                    <table class="table small">
+                        <thead><tr><th scope="col">Field</th><th scope="col">Type</th><th scope="col">Details</th></tr></thead>
+                        <tbody>{% for f in en.fields %}<tr><td class="mono">{{ f.name }}{% if f.id %} <span class="badge">id</span>{% endif %}</td><td class="mono">{{ f.type }}</td><td class="xs">{{ f.column or '' }}{% if f.relationship %} {{ f.relationship }}{% endif %}{% if f.nullable == false %} not null{% endif %}</td></tr>{% endfor %}</tbody>
+                    </table>
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header"><h3>Repositories & mappers</h3><span class="xs faint">{{ dm.repositories | length }}</span></div>
+            <div class="table-wrap">
+            <table class="table">
+                <thead><tr><th scope="col">Repository</th><th scope="col">Store</th><th scope="col">Entity</th><th scope="col">Custom queries</th></tr></thead>
+                <tbody>{% for r in dm.repositories %}
+                <tr><td>{{ r.name }}<div class="xs faint">{{ r.module or '(root)' }}</div></td><td class="small">{{ r.store }}</td><td class="small">{{ r.entity or '' }}</td>
+                    <td class="xs">{% for q in r.custom_queries[:4] %}<div class="break"><strong>{{ q.method }}</strong> <span class="faint mono">{{ (q.query or '')[:110] }}</span></div>{% endfor %}{% if r.custom_queries | length > 4 %}<div class="faint">+{{ r.custom_queries | length - 4 }} more</div>{% endif %}</td></tr>
+                {% endfor %}</tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Messaging -->
+<section role="tabpanel" id="panel-messaging" aria-labelledby="tab-messaging" hidden>
+    {% set integ = model.integrations %}
+    <div class="stack-lg">
+        <div class="card">
+            <div class="card-header"><h3>Topics & queues</h3></div>
+            {% if integ.messaging.destinations %}
+            <div class="table-wrap"><table class="table">
+                <thead><tr><th scope="col">Destination</th><th scope="col">Technology</th><th scope="col">Producers</th><th scope="col">Consumers</th></tr></thead>
+                <tbody>{% for d in integ.messaging.destinations %}
+                <tr><td><code>{{ d.destination }}</code></td><td class="small">{{ d.technology }}</td><td class="xs">{{ d.producers | join(', ') or '—' }}</td><td class="xs">{{ d.consumers | join(', ') or '—' }}</td></tr>
+                {% endfor %}</tbody>
+            </table></div>
+            {% else %}<p class="card-body small muted">No messaging detected.</p>{% endif %}
+        </div>
+        <div class="grid grid-2">
+            <div class="card">
+                <div class="card-header"><h3>Application events</h3></div>
+                <ul class="list small">
+                    {% for e in integ.events.published %}<li>{{ e.source }} publishes <code>{{ e.event_type }}</code></li>{% endfor %}
+                    {% for l in integ.events.listeners %}<li>{{ l.handler }} handles <code>{{ l.destinations | join(', ') }}</code>{% if l.async %} <span class="badge">async</span>{% endif %}</li>{% endfor %}
+                    {% if not integ.events.published and not integ.events.listeners %}<li class="muted">None.</li>{% endif %}
+                </ul>
+            </div>
+            <div class="card">
+                <div class="card-header"><h3>Scheduled jobs</h3></div>
+                <ul class="list small">
+                    {% for j in integ.scheduled_jobs %}<li><strong>{{ j.handler }}</strong> <span class="xs faint">{{ j.module }}</span><div class="chips" style="margin-top:4px">{% for k, v in j.schedule.items() %}<span class="chip">{{ k }} {{ v }}</span>{% endfor %}</div></li>
+                    {% else %}<li class="muted">None.</li>{% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- External -->
+<section role="tabpanel" id="panel-external" aria-labelledby="tab-external" hidden>
+    <div class="card">
+        {% if model.integrations.external_apis %}
+        <div class="table-wrap"><table class="table">
+            <thead><tr><th scope="col">Target</th><th scope="col">Call</th><th scope="col">Client</th><th scope="col">From</th></tr></thead>
+            <tbody>{% for f in model.integrations.external_apis | sort(attribute='source') %}
+            <tr><td>{{ f.target_service or f.host or 'unresolved' }}{% if f.target_module is defined and f.target_module is not none %} <span class="badge badge-accent">internal</span>{% endif %}</td>
+                <td class="break">{{ method(f.http_method or 'ANY') }} <code class="xs">{{ f.url or '' }}</code>{% if f.base_url %}<div class="xs faint">base {{ f.base_url }}</div>{% endif %}</td>
+                <td class="small">{{ f.client | replace('_', ' ') }}</td>
+                <td class="xs">{{ f.source }}<div class="faint">{{ f.module or '(root)' }}</div></td></tr>
+            {% endfor %}</tbody>
+        </table></div>
+        {% else %}<p class="card-body small muted">No outbound HTTP calls detected.</p>{% endif %}
+    </div>
+    {% if model.integrations.storage or model.integrations.email %}
+    <ul class="list card small" style="margin-top:16px">
+        {% for f in model.integrations.storage %}<li>Storage ({{ f.technology }}): {{ f.operation | lower }} {{ f.bucket or '' }} in {{ f.source }}</li>{% endfor %}
+        {% for f in model.integrations.email %}<li>Email via {{ f.source }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+</section>
+
+<!-- Security -->
+<section role="tabpanel" id="panel-security" aria-labelledby="tab-security" hidden>
+    {% set sec = model.security %}
+    <div class="stack-lg">
+        <div class="card card-body">
+            <dl class="kv small">
+                <dt>Enabled</dt><dd>{{ 'Yes' if sec.enabled else 'No' }}{% if sec.csrf_disabled %} · CSRF protection disabled{% endif %}</dd>
+                <dt>Technologies</dt><dd><div class="chips">{% for t in sec.technologies %}<span class="chip">{{ t }}</span>{% else %}—{% endfor %}</div></dd>
+                <dt>Mechanisms</dt><dd><div class="chips">{% for t in sec.mechanisms %}<span class="chip">{{ t }}</span>{% else %}—{% endfor %}</div></dd>
+                <dt>Method-level rules</dt><dd>{{ sec.endpoints_with_method_security }} endpoint(s)</dd>
+            </dl>
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>URL rules</h3></div>
+            {% if sec.url_rules %}
+            <div class="table-wrap"><table class="table">
+                <thead><tr><th scope="col">Paths</th><th scope="col">Method</th><th scope="col">Access</th><th scope="col">Module</th></tr></thead>
+                <tbody>{% for r in sec.url_rules %}
+                <tr><td class="break"><code>{{ r.patterns | join(', ') }}</code></td><td class="small">{{ r.http_method or 'any' }}</td><td class="small">{{ r.access }}{% if r.roles %} {{ r.roles | join(', ') }}{% endif %}</td><td class="xs">{{ r.module or '(root)' }}<div class="faint">{{ r.defined_in }}</div></td></tr>
+                {% endfor %}</tbody>
+            </table></div>
+            {% else %}<p class="card-body small muted">No URL security rules found.</p>{% endif %}
+        </div>
+        <div class="card">
+            <div class="card-header"><h3>Exception handling</h3></div>
+            {% if model.exception_handling %}
+            <div class="table-wrap"><table class="table">
+                <thead><tr><th scope="col">Exception</th><th scope="col" class="num">Status</th><th scope="col">Mapped by</th></tr></thead>
+                <tbody>{% for x in model.exception_handling %}
+                <tr><td class="mono small">{{ x.exception }}</td><td class="num">{{ x.status or '—' }}</td><td class="xs">{{ x.handler or x.source }}</td></tr>
+                {% endfor %}</tbody>
+            </table></div>
+            {% else %}<p class="card-body small muted">No exception mappings.</p>{% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
 <script>
     const repo = {{ repo | tojson }};
     const systemGraph = {{ system_graph | tojson }};
     const rendered = {};
 
-    document.querySelectorAll(".legend-dot").forEach(dot => {
-        dot.style.background = window.graphColors[dot.dataset.color] || "#94a3b8";
-    });
+    document.querySelectorAll(".legend-dot[data-color]").forEach(dot => dot.style.background = window.graphColors[dot.dataset.color] || "#94a3b8");
 
-    function showTab(tab) {
-        document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
-        document.querySelectorAll(".tab-panel").forEach(p => p.classList.toggle("hidden", p.id !== "tab-" + tab));
-        if (tab === "system" && !rendered.system) {
-            rendered.system = true;
-            renderSystem();
-        }
-        if (tab === "components" && !rendered.components) {
-            rendered.components = true;
-            loadComponents();
-        }
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    function showTab(key, focus) {
+        tabs.forEach(t => {
+            const on = t.dataset.tab === key;
+            t.setAttribute("aria-selected", on); t.tabIndex = on ? 0 : -1;
+            document.getElementById("panel-" + t.dataset.tab).hidden = !on;
+            if (on && focus) t.focus();
+        });
+        history.replaceState(null, "", "#" + key);
+        if (key === "system" && !rendered.system) { rendered.system = true; renderSystem(); }
+        if (key === "components" && !rendered.components) { rendered.components = true; loadComponents(); }
     }
+    tabs.forEach((t, i) => {
+        t.addEventListener("click", () => showTab(t.dataset.tab));
+        t.addEventListener("keydown", e => {
+            if (e.key === "ArrowRight") showTab(tabs[(i + 1) % tabs.length].dataset.tab, true);
+            if (e.key === "ArrowLeft") showTab(tabs[(i - 1 + tabs.length) % tabs.length].dataset.tab, true);
+        });
+    });
 
     function renderSystem() {
         const showInfra = document.getElementById("show-infra").checked;
         renderGraph(document.getElementById("system-graph"), systemGraph, {
-            height: 620,
+            height: 600,
             nodeFilter: n => showInfra || n.type !== "infrastructure",
             onNodeClick: d => {
                 if (d.type !== "module") return;
-                const select = document.getElementById("component-module");
-                select.value = d.path;
+                document.getElementById("component-module").value = d.path;
+                rendered.components = true;
                 showTab("components");
                 loadComponents();
             },
@@ -378,33 +343,27 @@
 
     function loadComponents() {
         const module = document.getElementById("component-module").value;
-        document.querySelectorAll("#component-table tbody tr").forEach(row => {
-            row.classList.toggle("hidden", row.dataset.module !== module);
-        });
+        document.querySelectorAll("#component-table tbody tr").forEach(row => row.hidden = row.dataset.module !== module);
         fetch(`/api/dependency-graph?repo=${encodeURIComponent(repo)}&view=components&module=${encodeURIComponent(module)}`)
             .then(r => r.json())
-            .then(data => renderGraph(document.getElementById("component-graph"), data, {height: 620}));
+            .then(data => renderGraph(document.getElementById("component-graph"), data, {height: 560}));
     }
 
-    document.querySelectorAll(".tab-btn").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
     document.getElementById("component-module").addEventListener("change", loadComponents);
     document.getElementById("show-infra").addEventListener("change", renderSystem);
 
     const filter = document.getElementById("endpoint-filter");
+    const rows = [...document.querySelectorAll(".endpoint-row")];
     function applyFilter() {
         const q = filter.value.toLowerCase();
         let shown = 0;
-        document.querySelectorAll(".endpoint-row").forEach(row => {
-            const match = row.textContent.toLowerCase().includes(q);
-            row.classList.toggle("hidden", !match);
-            if (match) shown++;
-        });
-        document.getElementById("endpoint-count").textContent = `${shown} endpoint(s)`;
+        rows.forEach(row => { const ok = row.textContent.toLowerCase().includes(q); row.hidden = !ok; if (ok) shown++; });
+        document.getElementById("endpoint-count").textContent = `${shown} of ${rows.length}`;
     }
     filter.addEventListener("input", applyFilter);
     applyFilter();
 
-    showTab("system");
+    const initial = location.hash.slice(1);
+    showTab(tabs.some(t => t.dataset.tab === initial) ? initial : "system");
 </script>
-</body>
-</html>
+{% endblock %}

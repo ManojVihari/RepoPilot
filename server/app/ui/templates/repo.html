@@ -1,0 +1,77 @@
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon, method, stat, breadcrumbs %}
+{% block title %}{{ repo }}{% endblock %}
+{% block content %}
+{{ breadcrumbs([('Home', '/'), (repo, None)]) }}
+<div class="page-header">
+    <div>
+        <div class="eyebrow">Repository</div>
+        <h1>{{ repo }}</h1>
+        <p class="lead">{{ summary.api_count }} documented API{{ '' if summary.api_count == 1 else 's' }}{% if summary.updated_label %}, last updated <time title="{{ summary.updated_title }}">{{ summary.updated_label }}</time>{% endif %}.</p>
+    </div>
+    {% if summary.has_architecture %}<a class="btn btn-primary" href="/ui/{{ repo }}/architecture">{{ icon('arch') }} Architecture</a>{% endif %}
+</div>
+
+<div class="grid grid-stats">
+    {{ stat('APIs', summary.api_count) }}
+    {{ stat('Versions', summary.version_count) }}
+    {{ stat('APIs changed since first scan', summary.changed_apis) }}
+    {% if summary.architecture %}{{ stat('Modules', summary.architecture.modules, summary.architecture.style) }}{% endif %}
+</div>
+
+{% if summary.architecture and summary.architecture.technologies %}
+<div class="chips" style="margin-top:16px" aria-label="Technology stack">{% for t in summary.architecture.technologies %}<span class="chip">{{ t }}</span>{% endfor %}</div>
+{% endif %}
+
+<section style="margin-top:28px" aria-labelledby="apis-title">
+    <div class="section-title">
+        <h2 id="apis-title">APIs</h2>
+        <div>
+            <label class="sr-only" for="repo-filter">Filter APIs</label>
+            <input id="repo-filter" type="search" placeholder="Filter by name or path…" autocomplete="off" style="width:260px">
+        </div>
+    </div>
+    <div class="stack">
+    {% for group, group_items in groups.items() %}
+        <div class="card api-group">
+            <div class="card-header"><h3>{{ group }}</h3><span class="xs faint">{{ group_items | length }}</span></div>
+            <div class="table-wrap">
+            <table class="table">
+                <caption class="sr-only">{{ group }} APIs</caption>
+                <thead><tr><th scope="col" style="width:80px">Method</th><th scope="col">API</th><th scope="col" class="col-opt">Path</th><th scope="col" class="num col-opt">Version</th><th scope="col" class="col-opt">Updated</th></tr></thead>
+                <tbody>
+                {% for i in group_items %}
+                <tr data-filter="{{ (i.title ~ ' ' ~ i.name ~ ' ' ~ (i.path or '')) | lower }}">
+                    <td>{{ method(i.method) if i.method else '' }}</td>
+                    <td><a class="row-link" href="/ui/{{ repo }}/{{ i.name }}">{{ i.title }}</a>{% if i.path %}<div class="show-sm xs faint mono break">{{ i.path }}</div>{% endif %}</td>
+                    <td class="break col-opt"><code>{{ i.path or '' }}</code></td>
+                    <td class="num col-opt">v{{ i.latest_version }}{% if i.versions > 1 %} <a class="xs" href="/ui/{{ repo }}/{{ i.name }}/history" aria-label="History of {{ i.title }}">history</a>{% endif %}</td>
+                    <td class="nowrap small muted col-opt"><time title="{{ i.updated_title }}">{{ i.updated_label }}</time></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+    {% endfor %}
+    </div>
+    <p class="empty" id="no-match" hidden>No API matches this filter.</p>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+    (function () {
+        const input = document.getElementById("repo-filter");
+        input.addEventListener("input", () => {
+            const q = input.value.trim().toLowerCase();
+            let any = false;
+            document.querySelectorAll(".api-group").forEach(g => {
+                let shown = 0;
+                g.querySelectorAll("tbody tr").forEach(tr => { const ok = !q || tr.dataset.filter.includes(q); tr.hidden = !ok; if (ok) shown++; });
+                g.hidden = shown === 0; any = any || shown > 0;
+            });
+            document.getElementById("no-match").hidden = any;
+        });
+    })();
+</script>
+{% endblock %}

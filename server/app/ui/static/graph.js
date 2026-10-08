@@ -47,12 +47,14 @@
 
         if (!data || !data.nodes || data.nodes.length === 0) {
             const empty = document.createElement("div");
-            empty.className = "p-8 text-center text-slate-500 text-sm";
+            empty.className = "empty small";
             empty.textContent = "Nothing to show for this view.";
             container.appendChild(empty);
             return;
         }
 
+        const css = getComputedStyle(document.documentElement);
+        const theme = name => css.getPropertyValue(name).trim();
         const width = container.clientWidth || 900;
         const height = options.height || 560;
 
@@ -83,7 +85,7 @@
             .attr("id", "arrow-" + container.id)
             .attr("viewBox", "0 -5 10 10").attr("refX", 10).attr("refY", 0)
             .attr("markerWidth", 6).attr("markerHeight", 6).attr("orient", "auto")
-            .append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", "#94a3b8");
+            .append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", theme("--text-faint") || "#94a3b8");
 
         const root = svg.append("g");
         const zoom = d3.zoom().scaleExtent([0.1, 4]).on("zoom", e => root.attr("transform", e.transform));
@@ -120,7 +122,7 @@
             .force("collide", d3.forceCollide().radius(d => radius(d) + 22));
 
         const link = root.append("g").selectAll("line").data(links).join("line")
-            .attr("stroke", "#cbd5e1").attr("stroke-width", 1.6)
+            .attr("stroke", theme("--border-strong") || "#cbd5e1").attr("stroke-width", 1.6)
             .attr("marker-end", "url(#arrow-" + container.id + ")")
             .on("mousemove", (event, d) => showTooltip(event, [
                 (d.source.label || d.source.id) + " → " + (d.target.label || d.target.id),
@@ -139,7 +141,7 @@
 
         node.append("circle")
             .attr("r", radius).attr("fill", color).attr("fill-opacity", 0.9)
-            .attr("stroke", "#fff").attr("stroke-width", 2);
+            .attr("stroke", theme("--surface") || "#fff").attr("stroke-width", 2);
 
         node.append("text")
             .attr("class", "graph-node-label")

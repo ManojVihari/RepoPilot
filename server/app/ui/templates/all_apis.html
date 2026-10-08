@@ -1,235 +1,68 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>All APIs - DocAI</title>
-
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
-        
-        * {
-            font-family: 'Inter', sans-serif;
-        }
-        
-        h1, h2, h3, h4 {
-            font-family: 'Poppins', sans-serif;
-            font-weight: 600;
-        }
-        
-        .gradient-bg {
-            background: linear-gradient(135deg, #1e40af 0%, #0369a1 100%);
-        }
-        
-        .card-hover {
-            transition: all 0.25s ease;
-        }
-        
-        .card-hover:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(30, 64, 175, 0.08);
-            border-color: #3b82f6;
-        }
-        
-        .sidebar-active {
-            background-color: rgba(30, 64, 175, 0.08);
-            border-left: 3px solid #1e40af;
-        }
-        
-        .search-input:focus {
-            box-shadow: 0 0 0 3px rgba(30, 64, 175, 0.08);
-        }
-        
-        .fade-in {
-            animation: fadeIn 0.4s ease-out;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(8px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .filter-btn {
-            transition: all 0.2s ease;
-        }
-        
-        .filter-btn.active {
-            background-color: #1e40af;
-            color: white;
-        }
-    </style>
-</head>
-
-<body class="bg-white text-slate-900 min-h-screen">
-
-<div class="flex h-screen">
-
-    <!-- Sidebar -->
-    <aside class="w-64 bg-slate-50 border-r border-slate-200 hidden lg:flex flex-col">
-        <!-- Logo -->
-        <div class="p-6 border-b border-slate-200">
-            <div class="flex items-center gap-3">
-                <div class="w-9 h-9 gradient-bg rounded-lg flex items-center justify-center">
-                    <i class="fas fa-book text-white text-sm"></i>
-                </div>
-                <div>
-                    <h1 class="text-lg font-bold text-slate-900">DocAI</h1>
-                    <p class="text-xs text-slate-500">Documentation</p>
-                </div>
-            </div>
-        </div>
-
-        <!-- Navigation -->
-        <nav class="p-3 space-y-1 flex-1 overflow-y-auto">
-            <a href="/ui/" class="flex items-center gap-3 px-3 py-2.5 rounded text-sm text-slate-600 hover:bg-white transition">
-                <i class="fas fa-home w-4"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="/ui/all" class="sidebar-active flex items-center gap-3 px-3 py-2.5 rounded text-sm font-medium text-blue-700">
-                <i class="fas fa-layer-group w-4"></i>
-                <span>All APIs</span>
-            </a>
-            <a href="/ui/search" class="flex items-center gap-3 px-3 py-2.5 rounded text-sm text-slate-600 hover:bg-white transition">
-                <i class="fas fa-robot w-4"></i>
-                <span>LLM Search</span>
-            </a>
-        </nav>
-
-        <!-- Footer -->
-        <div class="p-3 border-t border-slate-200">
-            <p class="text-xs text-slate-500">v1.0.0</p>
-        </div>
-    </aside>
-
-    <!-- Main -->
-    <div class="flex-1 flex flex-col overflow-hidden">
-
-        <!-- Header -->
-        <header class="bg-white border-b border-slate-200">
-            <div class="px-8 py-5 flex items-center justify-between">
-                <div class="flex items-center gap-4 flex-1">
-                    <div>
-                        <h2 class="text-xl font-semibold text-slate-900">All APIs</h2>
-                        <p class="text-sm text-slate-500">Browse services</p>
-                    </div>
-                </div>
-
-                <div class="flex items-center gap-4">
-                    <div class="relative hidden sm:block">
-                        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-                        <input type="text" placeholder="Search..." 
-                            id="searchInput"
-                            class="search-input bg-white border border-slate-300 rounded-lg pl-8 pr-4 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 w-72" />
-                    </div>
-                    <a href="/ui" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-sm font-medium transition">Dashboard</a>
-                </div>
-            </div>
-        </header>
-
-        <!-- Content -->
-        <main class="flex-1 overflow-y-auto">
-            <div class="p-8 max-w-7xl mx-auto">
-                
-                <!-- Filters -->
-                <div class="mb-8">
-                    <div class="flex items-center gap-3">
-                        <button class="filter-btn active px-4 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded hover:bg-blue-50 transition" data-filter="all">
-                            All
-                        </button>
-                        {% for repo in data.keys() %}
-                        <button class="filter-btn px-4 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded hover:bg-blue-50 transition" data-filter="{{ repo }}">
-                            {{ repo }}
-                        </button>
-                        {% endfor %}
-                    </div>
-                </div>
-
-                <!-- Services -->
-                <div class="space-y-12">
-                    {% for repo, apis in data.items() %}
-                    
-                    <div class="fade-in service-group" data-repo="{{ repo }}">
-                        <!-- Service Header -->
-                        <div class="mb-5">
-                            <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 gradient-bg rounded-lg flex items-center justify-center">
-                                    <i class="fas fa-box text-white text-xs"></i>
-                                </div>
-                                <div>
-                                    <h3 class="text-lg font-semibold text-slate-900">{{ repo }}</h3>
-                                    <p class="text-xs text-slate-500">{{ apis | length }} API(s)
-                                        {% if repo in architectures %} · <a href="/ui/{{ repo }}/architecture" class="text-blue-600 hover:underline"><i class="fas fa-project-diagram"></i> Architecture</a>{% endif %}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- API Grid -->
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {% for api in apis %}
-                            <div class="card-hover group bg-white rounded-lg border border-slate-200 p-5 h-full">
-                                <div class="flex items-start justify-between mb-4">
-                                    <div class="flex-1">
-                                        <h4 class="font-semibold text-slate-900 group-hover:text-blue-700 transition">{{ api.title or api.name }}</h4>
-                                        {% if api.title and api.title != api.name %}<p class="text-xs text-slate-400 font-mono">{{ api.name }}</p>{% endif %}
-                                        <p class="text-xs text-slate-500 mt-1">v{{ api.latest_version }}</p>
-                                    </div>
-                                    <span class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded">Live</span>
-                                </div>
-
-                                <a href="/ui/{{ repo }}/{{ api.name }}/view/{{ api.latest_version }}" class="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded transition w-full justify-center">
-                                    <i class="fas fa-arrow-right text-xs"></i>
-                                    View Latest
-                                </a>
-                                <a href="/ui/{{ repo }}/{{ api.name }}/history" class="inline-flex items-center gap-2 px-4 py-2.5 mt-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-sm font-medium rounded transition w-full justify-center">
-                                    <i class="fas fa-history text-xs"></i>
-                                    Version History
-                                </a>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    {% endfor %}
-                </div>
-
-            </div>
-        </main>
-
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon, method %}
+{% block title %}All APIs{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>All APIs</h1>
+        <p class="lead">{{ items | length }} APIs across {{ repos | length }} repositor{{ 'y' if repos | length == 1 else 'ies' }}.</p>
     </div>
 </div>
 
+<form class="row" style="margin-bottom:16px" role="search" onsubmit="return false">
+    <label class="sr-only" for="all-filter">Filter APIs</label>
+    <input id="all-filter" type="search" value="{{ q }}" placeholder="Filter by title, name or path…" autocomplete="off" style="flex:1;min-width:220px">
+    <label class="sr-only" for="all-repo">Repository</label>
+    <select id="all-repo">
+        <option value="">All repositories</option>
+        {% for r in repos %}<option value="{{ r }}" {% if r == selected_repo %}selected{% endif %}>{{ r }}</option>{% endfor %}
+    </select>
+</form>
+
+<div class="card">
+    <div class="table-wrap">
+    <table class="table">
+        <caption class="sr-only">All documented APIs</caption>
+        <thead><tr><th scope="col" style="width:80px">Method</th><th scope="col">API</th><th scope="col" class="col-opt">Path</th><th scope="col" class="col-opt">Repository</th><th scope="col" class="num col-opt">Version</th><th scope="col" class="col-opt">Updated</th></tr></thead>
+        <tbody id="all-rows">
+        {% for i in items %}
+        <tr data-repo="{{ i.repo }}" data-filter="{{ (i.title ~ ' ' ~ i.name ~ ' ' ~ (i.path or '') ~ ' ' ~ i.group) | lower }}">
+            <td>{{ method(i.method) if i.method else '' }}</td>
+            <td><a class="row-link" href="/ui/{{ i.repo }}/{{ i.name }}">{{ i.title }}</a>{% if i.path %}<div class="show-sm xs faint mono break">{{ i.path }}</div>{% endif %}<div class="xs faint"><span class="show-sm-inline">{{ i.repo }} · </span>{{ i.group }}</div></td>
+            <td class="break col-opt"><code>{{ i.path or '' }}</code></td>
+            <td class="col-opt"><a href="/ui/{{ i.repo }}">{{ i.repo }}</a></td>
+            <td class="num col-opt">v{{ i.latest_version }}</td>
+            <td class="nowrap small muted col-opt"><time title="{{ i.updated_title }}">{{ i.updated_label }}</time></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <p class="empty" id="all-empty" {% if items %}hidden{% endif %}>{% if items %}No API matches this filter.{% else %}Nothing documented yet.{% endif %}</p>
+</div>
+<p class="xs faint" style="margin-top:8px" id="all-count" aria-live="polite"></p>
+{% endblock %}
+{% block scripts %}
 <script>
-    // Filter
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            
-            const filter = btn.dataset.filter;
-            document.querySelectorAll('.service-group').forEach(group => {
-                const show = filter === 'all' || group.dataset.repo === filter;
-                group.style.display = show ? 'block' : 'none';
-            });
-        });
-    });
-
-    // Search
-    document.getElementById('searchInput')?.addEventListener('input', (e) => {
-        const query = e.target.value.toLowerCase();
-        document.querySelectorAll('h4').forEach(el => {
-            const card = el.closest('div[class*="card-hover"]');
-            if (card) {
-                const show = el.textContent.toLowerCase().includes(query) || !query;
-                card.style.display = show ? 'block' : 'none';
-            }
-        });
-    });
+    (function () {
+        const input = document.getElementById("all-filter"), repo = document.getElementById("all-repo");
+        const rows = [...document.querySelectorAll("#all-rows tr")];
+        function apply() {
+            const q = input.value.trim().toLowerCase(), r = repo.value;
+            let shown = 0;
+            rows.forEach(tr => { const ok = (!q || tr.dataset.filter.includes(q)) && (!r || tr.dataset.repo === r); tr.hidden = !ok; if (ok) shown++; });
+            document.getElementById("all-empty").hidden = shown > 0 || rows.length === 0;
+            document.getElementById("all-count").textContent = `Showing ${shown} of ${rows.length}`;
+            const url = new URL(location.href);
+            q ? url.searchParams.set("q", q) : url.searchParams.delete("q");
+            r ? url.searchParams.set("repo", r) : url.searchParams.delete("repo");
+            history.replaceState(null, "", url);
+        }
+        input.addEventListener("input", apply); repo.addEventListener("change", apply);
+        apply();
+        // the top bar search lands here: focus the filter
+        if (input.value) input.focus();
+    })();
 </script>
-
-</body>
-
-</html>
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="card empty" style="max-width:560px;margin:40px auto">
+    {{ icon('info') }}
+    <h1 style="font-size:1.3rem">{{ title }}</h1>
+    <p class="muted">{{ message }}</p>
+    <p style="margin-top:18px"><a class="btn" href="{{ back }}">{{ icon('arrow-left') }} Go back</a> <a class="btn btn-ghost" href="/">Home</a></p>
+</div>
+{% endblock %}

@@ -1,14 +1,14 @@
 import difflib
-from urllib.parse import quote
+import re
 from datetime import datetime
 from typing import List
 from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from app.config import TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
-from app.services import docs_store
+from app.services import docs_store, ui_data
 from app.services.architecture_store import has_architecture, load_architecture, save_architecture
 from app.services.qa_plan_service import QAPlanService
 from app.services.doc_service import process_routes
@@ -23,12 +23,22 @@ from app.services.test_templates import (
     get_template_recommendations
 )
 import markdown
+import markupsafe
 from bs4 import BeautifulSoup
 
 router = APIRouter()
 qa_plan_service = QAPlanService()
 version_service = VersionService()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+
+def _inline_code(text):
+    """Escape text and render `backticked` parts as <code>."""
+    escaped = str(markupsafe.escape(text or ""))
+    return markupsafe.Markup(re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped))
+
+
+templates.env.filters["inline_code"] = _inline_code
 
 DOC_MARKDOWN_EXTENSIONS = [
     "tables",
@@ -40,39 +50,30 @@ DOC_MARKDOWN_EXTENSIONS = [
 ]
 
 
-def _nav_context(repo):
-    """Sidebar data shared by the per-API pages."""
-    titles = docs_store.get_titles(repo)
-    return {
-        "apis": sorted(
-            ({"name": api, "title": titles.get(api, api)} for api in docs_store.list_apis(repo)),
-            key=lambda a: a["title"].lower(),
-        ),
+def _nav_context(repo, api=None, tab=None, version=None):
+    """Data for the shared layout: API sidebar, repo switcher, API header and tabs."""
+    context = {
+        "apis": ui_data.api_items(repo),
         "repos": docs_store.list_repos(),
         "has_architecture": has_architecture(repo),
+        "tab": tab,
     }
+    if api is not None:
+        versions = docs_store.list_versions(repo, api)
+        context.update({
+            "api_title": docs_store.get_title(repo, api),
+            "latest_version": versions[-1] if versions else None,
+            "current_route": ui_data.current_route(repo, api, version),
+        })
+    return context
 
 
-def _repos_overview(include_version_count=False):
-    data = {}
-
-    for repo in docs_store.list_repos():
-        apis = []
-        titles = docs_store.get_titles(repo)
-
-        for api in docs_store.list_apis(repo):
-            versions = docs_store.list_versions(repo, api)
-            entry = {"name": api, "title": titles.get(api, api), "latest_version": versions[-1]}
-
-            if include_version_count:
-                entry["versions"] = len(versions)
-
-            apis.append(entry)
-
-        if apis:
-            data[repo] = apis
-
-    return data
+def _not_found(request, message, back=None):
+    return templates.TemplateResponse(
+        request, "message.html",
+        {"title": "Not found", "message": message, "back": back or "/", "nav": None},
+        status_code=404,
+    )
 
 
 def _impact(repo, api, v1, v2, v1_content, v2_content):
@@ -134,23 +135,47 @@ def get_architecture(repo: str, commit: str = None):
     return JSONResponse(document)
 
 
+@router.get("/", response_class=HTMLResponse)
 @router.get("/ui", response_class=HTMLResponse)
 def ui_home(request: Request):
+    """Home: search, repositories and recent changes."""
+    repos = docs_store.list_repos()
+    items = {repo: ui_data.api_items(repo) for repo in repos}
+    summaries = [ui_data.repo_summary(repo, items[repo]) for repo in repos]
+    summaries = [s for s in summaries if s["api_count"]]
+    summaries.sort(key=lambda s: s["updated"] or 0, reverse=True)
+
     return templates.TemplateResponse(
         request,
         "index.html",
-        {"data": _repos_overview()}
+        {
+            "nav": "home",
+            "repos": summaries,
+            "totals": {
+                "repos": len(summaries),
+                "apis": sum(s["api_count"] for s in summaries),
+                "versions": sum(s["version_count"] for s in summaries),
+                "architectures": sum(1 for s in summaries if s["has_architecture"]),
+            },
+            "recent": ui_data.recent_changes([s["name"] for s in summaries], 8, items),
+        }
     )
 
 
 @router.get("/ui/all", response_class=HTMLResponse)
-def ui_all_apis(request: Request):
-    """Display all APIs from all repositories in a unified view"""
-    data = _repos_overview(include_version_count=True)
+def ui_all_apis(request: Request, q: str = "", repo: str = ""):
+    """Every API of every repository, filterable."""
+    repos = docs_store.list_repos()
+    items = []
+    for r in repos:
+        for item in ui_data.api_items(r):
+            items.append({**item, "repo": r})
+    items.sort(key=lambda i: (i["repo"].lower(), i["group"].lower(), i["title"].lower()))
+
     return templates.TemplateResponse(
         request,
         "all_apis.html",
-        {"data": data, "architectures": [repo for repo in data if has_architecture(repo)]}
+        {"nav": "apis", "items": items, "repos": repos, "q": q, "selected_repo": repo}
     )
 
 
@@ -226,6 +251,37 @@ def generate_diff(content1, content2):
 
     return rows
 
+
+def group_diff_rows(rows, context=2):
+    """Split diff rows into sections; long unchanged runs become collapsible."""
+    sections, run = [], []
+
+    def flush(last):
+        if not run:
+            return
+        first = not sections
+        head = [] if first else run[:context]
+        tail = [] if last else run[-context:]
+        hidden = run[len(head):len(run) - len(tail)]
+        if len(hidden) <= 2:
+            sections.append({"rows": run[:], "hidden": False})
+        else:
+            if head:
+                sections.append({"rows": head, "hidden": False})
+            sections.append({"rows": hidden, "hidden": True})
+            if tail:
+                sections.append({"rows": tail, "hidden": False})
+        run.clear()
+
+    for row in rows:
+        if row[0] == "same":
+            run.append(row)
+            continue
+        flush(last=False)
+        sections.append({"rows": [row], "hidden": False})
+    flush(last=True)
+    return sections
+
 def highlight_table_diff(old_html, new_html):
     old_soup = BeautifulSoup(old_html, "html.parser")
     new_soup = BeautifulSoup(new_html, "html.parser")
@@ -283,7 +339,7 @@ def api_diff(request: Request, repo: str, api: str, v1: int, v2: int):
     md2 = docs_store.read_version(repo, api, v2)
 
     if md1 is None or md2 is None:
-        return HTMLResponse("Invalid versions", status_code=404)
+        return _not_found(request, f"Version v{v1} or v{v2} of this API does not exist.", f"/ui/{repo}/{api}/history")
 
     # Generate LLM summary of changes
     summary = summarize_changes(md1, md2, api)
@@ -299,11 +355,12 @@ def api_diff(request: Request, repo: str, api: str, v1: int, v2: int):
         {
             "repo": repo,
             "api": api,
-            "api_title": docs_store.get_title(repo, api),
             "v1": v1,
             "v2": v2,
             "rows": diff_rows,
-            "summary": summary
+            "sections": group_diff_rows(diff_rows),
+            "summary": summary,
+            **_nav_context(repo, api, "history", v2)
         }
     )
 
@@ -320,11 +377,11 @@ def _render_doc_page(request, repo, api, version, md_content):
         {
             "repo": repo,
             "api": api,
-            "api_title": docs_store.get_title(repo, api),
-            "version": version,
+            "version": int(version) if str(version).isdigit() else version,
+            "versions": docs_store.list_versions(repo, api),
             "content": html_content,
             "toc": toc,
-            **_nav_context(repo)
+            **_nav_context(repo, api, "docs", int(version) if str(version).isdigit() else None)
         }
     )
 
@@ -336,9 +393,10 @@ def architecture_page(request: Request, repo: str):
     model = (document or {}).get("architecture", {}).get("spring") if document else None
 
     if model is None:
-        return HTMLResponse(
-            f"No architecture stored for '{repo}'. Run the scanner (scanner_version 2.0+) with --server.",
-            status_code=404,
+        return _not_found(
+            request,
+            f"No architecture stored for '{repo}'. Run the scanner (2.0+) or scripts/document_local_repo.py on it.",
+            f"/ui/{repo}" if docs_store.is_safe_name(repo) and repo in docs_store.list_repos() else "/",
         )
 
     return templates.TemplateResponse(
@@ -350,6 +408,7 @@ def architecture_page(request: Request, repo: str):
             "model": model,
             "system_graph": build_architecture_graph(document, "system"),
             "titles": docs_store.get_titles(repo),
+            "nav": None,
             **_nav_context(repo)
         }
     )
@@ -361,7 +420,7 @@ def view_doc(request: Request, repo: str, api: str, version: str):
     md_content = docs_store.read_version(repo, api, version)
 
     if md_content is None:
-        return HTMLResponse("Document not found", status_code=404)
+        return _not_found(request, f"Version v{version} of this API does not exist.", f"/ui/{repo}/{api}/history")
 
     return _render_doc_page(request, repo, api, version, md_content)
 
@@ -370,12 +429,12 @@ def view_doc(request: Request, repo: str, api: str, version: str):
 def view_latest(request: Request, repo: str, api: str):
 
     if not docs_store.api_path(repo, api):
-        return HTMLResponse("API not found", status_code=404)
+        return _not_found(request, f"There is no API '{api}' in '{repo}'.", f"/ui/{repo}" if docs_store.is_safe_name(repo) else "/")
 
     versions = docs_store.list_versions(repo, api)
 
     if not versions:
-        return HTMLResponse("No versions found", status_code=404)
+        return _not_found(request, "This API has no documented versions yet.", f"/ui/{repo}")
 
     latest_version = versions[-1]
     md_content = docs_store.read_version(repo, api, latest_version)
@@ -387,13 +446,9 @@ def view_latest(request: Request, repo: str, api: str):
 def api_versions(request: Request, repo: str, api: str):
 
     if not docs_store.api_path(repo, api):
-        return HTMLResponse("API not found", status_code=404)
+        return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
-    # Oldest first; markdown files carry no commit hash
-    versions = [
-        {"version": v, "commit_hash": "N/A"}
-        for v in docs_store.list_versions(repo, api)
-    ]
+    versions = ui_data.version_rows(repo, api)
 
     return templates.TemplateResponse(
         request,
@@ -401,9 +456,8 @@ def api_versions(request: Request, repo: str, api: str):
         {
             "repo": repo,
             "api": api,
-            "api_title": docs_store.get_title(repo, api),
             "versions": versions,
-            **_nav_context(repo)
+            **_nav_context(repo, api, "history")
         }
     )
 
@@ -411,22 +465,36 @@ def api_versions(request: Request, repo: str, api: str):
 @router.get("/ui/search", response_class=HTMLResponse)
 def ui_search(request: Request):
     """Display the LLM search page"""
-    return templates.TemplateResponse(request, "llm_search.html", {})
+    return templates.TemplateResponse(request, "llm_search.html", {"nav": "search", "q": request.query_params.get("q", "")})
 
 
 @router.get("/ui/{repo}", response_class=HTMLResponse)
 def repo_home(request: Request, repo: str):
 
     if not docs_store.is_safe_name(repo) or repo not in docs_store.list_repos():
-        return HTMLResponse(f"Repository '{repo}' not found", status_code=404)
+        return _not_found(request, f"There is no repository '{repo}'.")
 
-    apis = docs_store.list_apis(repo)
+    items = ui_data.api_items(repo)
 
-    if not apis:
-        return HTMLResponse(f"No APIs found in repository '{repo}'", status_code=404)
+    if not items:
+        return _not_found(request, f"No APIs are documented in '{repo}' yet.")
 
-    # Redirect to the first API alphabetically
-    return RedirectResponse(url=f"/ui/{quote(repo, safe='')}/{quote(apis[0], safe='')}")
+    groups = {}
+    for item in items:
+        groups.setdefault(item["group"], []).append(item)
+
+    return templates.TemplateResponse(
+        request,
+        "repo.html",
+        {
+            "nav": None,
+            "repo": repo,
+            "summary": ui_data.repo_summary(repo, items),
+            "groups": groups,
+            "items": items,
+            "recent": ui_data.recent_changes([repo], 6, {repo: items}),
+        }
+    )
 
 
 @router.post("/api/search")
@@ -503,12 +571,12 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
         force: If True, bypass cache and regenerate QA plan
     """
     if not docs_store.api_path(repo, api):
-        return HTMLResponse(f"API '{api}' not found in repository '{repo}'", status_code=404)
+        return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
     versions = docs_store.list_versions(repo, api)
 
     if not versions:
-        return HTMLResponse("No versions found for this API", status_code=404)
+        return _not_found(request, "This API has no documented versions yet.")
 
     v1, v2 = _default_versions(versions, v1, v2)
 
@@ -522,7 +590,7 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
         doc_v2 = docs_store.read_version(repo, api, v2)
 
         if doc_v2 is None:
-            return HTMLResponse(f"Version v{v2} not found", status_code=404)
+            return _not_found(request, f"Version v{v2} of this API does not exist.", f"/ui/{repo}/{api}/history")
 
         # v1 doc enables regression testing
         doc_v1 = docs_store.read_version(repo, api, v1) if v1 else None
@@ -544,7 +612,7 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
             "qa_plan": qa_plan,
             "plan_generated_at": plan_generated_at,
             "is_cached": cached_plan is not None,
-            **_nav_context(repo)
+            **_nav_context(repo, api, "qa", v2)
         }
     )
 
@@ -704,19 +772,19 @@ def dependencies_view(request: Request, repo: str, api: str, v1: int = None, v2:
     Display dependency analysis and impact graph for API changes.
     """
     if not docs_store.api_path(repo, api):
-        return HTMLResponse(f"API '{api}' not found in repository '{repo}'", status_code=404)
+        return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
     versions = docs_store.list_versions(repo, api)
 
     if not versions:
-        return HTMLResponse("No versions found for this API", status_code=404)
+        return _not_found(request, "This API has no documented versions yet.")
 
     v1, v2 = _default_versions(versions, v1, v2)
 
     v2_content = docs_store.read_version(repo, api, v2)
 
     if v2_content is None:
-        return HTMLResponse(f"Version v{v2} not found", status_code=404)
+        return _not_found(request, f"Version v{v2} of this API does not exist.", f"/ui/{repo}/{api}/history")
 
     v1_content = (docs_store.read_version(repo, api, v1) if v1 else None) or ""
 
@@ -732,7 +800,7 @@ def dependencies_view(request: Request, repo: str, api: str, v1: int = None, v2:
             "v1": v1,
             "v2": v2,
             "impact_data": impact_data,
-            **_nav_context(repo)
+            **_nav_context(repo, api, "dependencies", v2)
         }
     )
 
@@ -743,7 +811,7 @@ def templates_view(request: Request, repo: str, api: str):
     Display and manage test templates for an API.
     """
     if not docs_store.api_path(repo, api):
-        return HTMLResponse(f"API '{api}' not found in repository '{repo}'", status_code=404)
+        return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
     return templates.TemplateResponse(
         request,
@@ -752,9 +820,10 @@ def templates_view(request: Request, repo: str, api: str):
             "repo": repo,
             "api": api,
             "api_title": docs_store.get_title(repo, api),
-            "recommendations": get_template_recommendations(api),
+            # the title describes what the API does better than its code name
+            "recommendations": get_template_recommendations(f"{docs_store.get_title(repo, api)} {api}"),
             "custom_templates": list_templates(repo),
             "predefined_templates": get_predefined_templates(),
-            **_nav_context(repo)
+            **_nav_context(repo, api, "templates")
         }
     )

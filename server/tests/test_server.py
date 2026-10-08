@@ -114,9 +114,9 @@ def test_ui_pages_render(docs_dir, client):
     assert client.get("/ui/shop/get_item").status_code == 200
     assert client.get("/ui/shop/get_item/history").status_code == 200
 
-    redirect = client.get("/ui/shop", follow_redirects=False)
-    assert redirect.status_code == 307
-    assert redirect.headers["location"] == "/ui/shop/get_item"
+    dashboard = client.get("/ui/shop")
+    assert dashboard.status_code == 200
+    assert 'href="/ui/shop/get_item"' in dashboard.text
 
     assert client.get("/ui/shop/missing").status_code == 404
 
@@ -254,7 +254,7 @@ def test_architecture_and_dependency_pages_render(two_versions):
     assert "Based on scanner data" in deps.text
     assert "REQUEST_FIELD_ADDED" in deps.text
 
-    assert two_versions.get("/ui/spring-shop/OrderController.create").text.count('href="/ui/spring-shop/architecture"') == 1
+    assert 'href="/ui/spring-shop/architecture"' in two_versions.get("/ui/spring-shop/OrderController.create").text
     assert two_versions.get("/ui/unknown-repo/architecture").status_code == 404
 
 
@@ -399,3 +399,61 @@ def test_llm_title_is_parsed_and_cleaned(monkeypatch):
     monkeypatch.setattr(doc_generator.requests, "post", lambda *a, **k: BadTitle())
     result = json.loads(doc_generator.APIDocGenerator().generate_explanation(Route(**FASTAPI_ROUTE)))
     assert (result["title"], result["title_source"]) == ("Get Item", "fallback")
+
+
+# ============================
+# UI SHELL: home, dashboards, navigation, accessibility
+# ============================
+
+UI_PAGES = [
+    "/", "/ui", "/ui/all", "/ui/search", "/ui/spring-shop", "/ui/spring-shop/architecture",
+    "/ui/spring-shop/OrderController.create", "/ui/spring-shop/OrderController.create/history",
+    "/ui/spring-shop/OrderController.create/diff?v1=1&v2=2",
+    "/ui/spring-shop/OrderController.create/dependencies?v1=1&v2=2",
+    "/ui/spring-shop/OrderController.create/qa-plan", "/ui/spring-shop/OrderController.create/templates",
+]
+
+
+def test_every_page_uses_the_accessible_shell(two_versions, monkeypatch):
+    from app.api import routes as r
+    monkeypatch.setattr(r, "summarize_changes", lambda *a: None)
+    monkeypatch.setattr(r, "generate_full_qa_plan", lambda *a: {"coverage": {}, "test_cases": {}, "is_template": True})
+    monkeypatch.setattr(r.qa_plan_service, "save_qa_plan", lambda *a, **k: True)
+
+    for url in UI_PAGES:
+        page = two_versions.get(url)
+        assert page.status_code == 200, url
+        html = page.text
+        assert '<html lang="en">' in html, url
+        assert 'class="skip-link" href="#main"' in html, url
+        assert 'id="main"' in html, url
+        assert '<nav class="mainnav" aria-label="Main">' in html, url
+        assert "cdn.tailwindcss.com" not in html and "font-awesome" not in html, url
+
+
+def test_api_pages_mark_the_current_tab(two_versions):
+    api = "/ui/spring-shop/OrderController.create"
+    assert f'<a href="{api}/history" aria-current="page">' in two_versions.get(api + "/history").text
+    docs = two_versions.get(api).text
+    assert f'<a href="{api}" aria-current="page">' in docs
+    assert "Changes from v1" in docs   # quick link to the diff of the latest version
+
+
+def test_home_lists_repositories_and_recent_changes(two_versions):
+    home = two_versions.get("/").text
+    assert 'href="/ui/spring-shop"' in home
+    assert "Recently documented" in home
+    assert 'href="/ui/spring-shop/OrderController.create/diff?v1=1&v2=2"' in home
+
+
+def test_history_shows_commits(two_versions):
+    history = two_versions.get("/ui/spring-shop/OrderController.create/history").text
+    assert "def5678" in history and "abc1234" in history
+    assert "N/A" not in history
+
+
+def test_unknown_pages_render_a_friendly_404(client, docs_dir):
+    for url in ("/ui/nope", "/ui/shop/nope", "/ui/shop/get_item/view/99", "/ui/nope/architecture"):
+        page = client.get(url)
+        assert page.status_code == 404, url
+        assert "Go back" in page.text, url

@@ -1,0 +1,94 @@
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon, method %}
+{# Layout for every per-API page: sidebar with the repo's APIs + header + tabs.
+   Context: repo, api, api_title, apis, repos, has_architecture, current_route (optional), tab #}
+
+{% block sidebar_toggle %}
+<button class="btn btn-ghost icon-btn sidebar-toggle" type="button" aria-controls="api-sidebar" aria-expanded="false" id="sidebar-toggle" aria-label="Show API list">{{ icon('menu') }}</button>
+{% endblock %}
+
+{% block body %}
+{% set r = current_route or {} %}
+<div class="workspace">
+    <aside class="sidebar" id="api-sidebar" aria-label="APIs in {{ repo }}">
+        <div class="sidebar-head">
+            <a href="/ui/{{ repo }}" class="row" style="font-weight:600;color:var(--text)">{{ icon('layers') }} {{ repo }}</a>
+            {% if repos | length > 1 %}
+            <label class="sr-only" for="repo-switch">Repository</label>
+            <select id="repo-switch" onchange="location='/ui/'+encodeURIComponent(this.value)">
+                {% for rp in repos %}<option value="{{ rp }}" {% if rp == repo %}selected{% endif %}>{{ rp }}</option>{% endfor %}
+            </select>
+            {% endif %}
+            <label class="sr-only" for="api-filter">Filter APIs</label>
+            <input id="api-filter" type="search" placeholder="Filter {{ apis | length }} APIs…" autocomplete="off">
+        </div>
+        <ul class="sidebar-list" id="api-list">
+            {% for item in apis %}
+            <li data-filter="{{ (item.title ~ ' ' ~ item.name ~ ' ' ~ (item.path or '')) | lower }}">
+                <a href="/ui/{{ repo }}/{{ item.name }}" {% if item.name == api %}aria-current="page"{% endif %}>
+                    {% if item.method %}{{ method(item.method) }}{% endif %}
+                    <span>{{ item.title or item.name }}</span>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+        <div class="sidebar-foot">{{ apis | length }} API{{ '' if apis | length == 1 else 's' }}{% if has_architecture %} · <a href="/ui/{{ repo }}/architecture">Architecture</a>{% endif %}</div>
+    </aside>
+
+    <div class="workspace-main">
+        <div class="api-header">
+            <nav class="breadcrumbs" aria-label="Breadcrumb"><ol>
+                <li><a href="/">Home</a></li>
+                <li><a href="/ui/{{ repo }}">{{ repo }}</a></li>
+                <li><span aria-current="page">{{ api_title }}</span></li>
+            </ol></nav>
+            <h1>{{ api_title }}</h1>
+            <div class="api-meta">
+                {% if r.method %}{{ method(r.method) }}{% endif %}
+                {% if r.path %}<code>{{ (r.context_path or '') ~ r.path }}</code>{% endif %}
+                {% if latest_version %}<span>v{{ latest_version }}</span>{% endif %}
+                <span class="faint mono xs" title="Stable API id used for versions">{{ api }}</span>
+            </div>
+            <nav class="tabs" aria-label="API sections">
+                {% for key, label, href, ic in [
+                    ('docs', 'Documentation', '/ui/' ~ repo ~ '/' ~ api, 'book'),
+                    ('history', 'History', '/ui/' ~ repo ~ '/' ~ api ~ '/history', 'history'),
+                    ('dependencies', 'Dependencies', '/ui/' ~ repo ~ '/' ~ api ~ '/dependencies', 'graph'),
+                    ('qa', 'QA plan', '/ui/' ~ repo ~ '/' ~ api ~ '/qa-plan', 'beaker'),
+                    ('templates', 'Test templates', '/ui/' ~ repo ~ '/' ~ api ~ '/templates', 'layers')] %}
+                <a href="{{ href }}" {% if tab == key %}aria-current="page"{% endif %}>{{ icon(ic) }}{{ label }}</a>
+                {% endfor %}
+            </nav>
+        </div>
+        <main id="main" class="workspace-content" tabindex="-1">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    (function () {
+        const input = document.getElementById("api-filter");
+        const rows = [...document.querySelectorAll("#api-list li")];
+        input.addEventListener("input", () => {
+            const q = input.value.trim().toLowerCase();
+            rows.forEach(li => li.hidden = q && !li.dataset.filter.includes(q));
+        });
+        const current = document.querySelector('#api-list a[aria-current="page"]');
+        if (current) current.scrollIntoView({block: "center"});
+
+        const toggle = document.getElementById("sidebar-toggle"), sidebar = document.getElementById("api-sidebar");
+        toggle.addEventListener("click", () => {
+            const open = sidebar.classList.toggle("open");
+            toggle.setAttribute("aria-expanded", open);
+            if (open) input.focus();
+        });
+        document.addEventListener("keydown", e => {
+            if (e.key === "Escape" && sidebar.classList.contains("open")) { sidebar.classList.remove("open"); toggle.setAttribute("aria-expanded", "false"); toggle.focus(); }
+        });
+    })();
+</script>
+{% block page_scripts %}{% endblock %}
+{% endblock %}
