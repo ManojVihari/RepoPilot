@@ -1,7 +1,13 @@
 from tree_sitter import Parser, Language, Query, QueryCursor
 from tree_sitter_java import language as java_language
+from docai.core.files import iter_source_files
+from docai.core.treesitter import normalize_captures, get_parent, get_text, reachable
+import logging
 import os
 import re
+import subprocess
+
+logger = logging.getLogger(__name__)
 
 
 class SpringExtractor:
@@ -28,26 +34,63 @@ class SpringExtractor:
         )
         """)
 
+        self._reset_caches(commit="HEAD")
+
+    def _reset_caches(self, commit):
+        self._commit = commit
+        self._parsed = {}
+        self._java_files = None
+        self._dto_files = None
+        self._dto_schemas = {}
+
+    def _parse(self, file_path):
+        """(code, tree) for a file, parsed at most once per run."""
+
+        key = os.path.normpath(file_path)
+
+        if key not in self._parsed:
+            with open(file_path, "rb") as f:
+                code = f.read()
+
+            self._parsed[key] = (code, self.parser.parse(code))
+
+        return self._parsed[key]
+
+    def _iter_java_files(self, repo_path):
+        if self._java_files is None:
+            self._java_files = list(iter_source_files(repo_path, ".java"))
+
+        return self._java_files
+
+    def _find_dto_files(self, repo_path, dto_name):
+        """Files declaring `dto_name`, i.e. named `<dto_name>.java`."""
+
+        if self._dto_files is None:
+            self._dto_files = {}
+
+            for full in self._iter_java_files(repo_path):
+                name = os.path.basename(full)[:-len(".java")]
+                self._dto_files.setdefault(name, []).append(full)
+
+        return self._dto_files.get(dto_name, [])
+
     # ============================
     # MAIN ENTRY
     # ============================
     def extract_from_file(self, file_path, repo_path):
 
-        with open(file_path, "rb") as f:
-            code = f.read()
-
-        tree = self.parser.parse(code)
+        code, tree = self._parse(file_path)
         cursor = QueryCursor(self.query)
         captures = cursor.captures(tree.root_node)
 
-        normalized = self._normalize_captures(captures)
+        normalized = normalize_captures(captures)
         routes_map = {}
 
         base_path = self.extract_base_path(tree.root_node, code)
 
         for node, capture_name in normalized:
 
-            parent = self._get_parent(node, "method_declaration")
+            parent = get_parent(node, "method_declaration")
             if not parent:
                 continue
 
@@ -212,81 +255,41 @@ class SpringExtractor:
 
         graph = {}
 
-        for root, _, files in os.walk(repo_path):
-            for f in files:
+        for full in self._iter_java_files(repo_path):
 
-                if not f.endswith(".java"):
-                    continue
+            try:
+                code, tree = self._parse(full)
+                root_node = tree.root_node
 
-                full = os.path.join(root, f)
+                stack = [root_node]
 
-                try:
-                    with open(full, "rb") as file:
-                        code = file.read()
+                while stack:
+                    node = stack.pop()
 
-                    tree = self.parser.parse(code)
-                    root_node = tree.root_node
+                    if node.type == "method_declaration":
 
-                    stack = [root_node]
+                        func_name = None
 
-                    while stack:
-                        node = stack.pop()
+                        for c in node.children:
+                            if c.type == "identifier":
+                                func_name = self._get_text(c, code)
+                                break
 
-                        if node.type == "method_declaration":
+                        if not func_name:
+                            continue
 
-                            func_name = None
+                        calls = self.extract_calls(node, code)
 
-                            for c in node.children:
-                                if c.type == "identifier":
-                                    func_name = self._get_text(c, code)
-                                    break
+                        graph[func_name] = calls
 
-                            if not func_name:
-                                continue
+                    stack.extend(node.children)
 
-                            calls = self.extract_calls(node, code)
-
-                            graph[func_name] = calls
-
-                        stack.extend(node.children)
-
-                except:
-                    continue
+            except Exception as e:
+                logger.debug("Failed to parse %s: %s", full, e)
+                continue
 
         return graph
 
-    # ============================
-    # 🔥 CHANGE DETECTION (AST)
-    # ============================
-
-    def find_changed_functions(self, repo_path, changed_files):
-
-        changed = set()
-
-        import subprocess
-
-        for file in changed_files:
-
-            if not file.endswith(".java"):
-                continue
-
-            try:
-                diff = subprocess.check_output(
-                    ["git", "diff", "-U0", "HEAD~1", "HEAD", "--", file],
-                    cwd=repo_path
-                ).decode()
-
-                # 🔥 extract method names from diff
-                matches = re.findall(r'\b(\w+)\s*\(', diff)
-
-                for m in matches:
-                    if m not in ["if", "for", "while", "return", "new"]:
-                        changed.add(m)
-
-            except:
-                continue
-
-        return changed
     # ============================
     # ROUTES
     # ============================
@@ -295,21 +298,16 @@ class SpringExtractor:
 
         routes = []
 
-        for root, _, files in os.walk(repo_path):
-            for f in files:
+        for full in self._iter_java_files(repo_path):
 
-                if not f.endswith(".java"):
-                    continue
+            if "controller" not in full.lower():
+                continue
 
-                full = os.path.join(root, f)
-
-                if "controller" not in full.lower():
-                    continue
-
-                try:
-                    routes.extend(self.extract_from_file(full, repo_path))
-                except:
-                    continue
+            try:
+                routes.extend(self.extract_from_file(full, repo_path))
+            except Exception as e:
+                logger.debug("Failed to extract %s: %s", full, e)
+                continue
 
         return routes
 
@@ -349,31 +347,16 @@ class SpringExtractor:
 
         return impacted
 
-    def expand_impact(self, func, graph, visited=None):
-
-        if visited is None:
-            visited = set()
-
-        if func in visited:
-            return []
-
-        visited.add(func)
-
-        impact = []
-
-        for call in graph.get(func, []):
-            impact.append(call)
-
-            deeper = self.expand_impact(call, graph, visited)
-            impact.extend(deeper)
-
-        return list(set(impact))
+    def expand_impact(self, func, graph):
+        return reachable(func, graph, include_start_on_cycle=True)
 
     # ============================
     # MAIN PROCESS
     # ============================
 
-    def process_repository(self, repo_path, changed_files):
+    def process_repository(self, repo_path, changed_files, commit="HEAD"):
+
+        self._reset_caches(commit)
 
         self.debug("CHANGED FILES", changed_files)
 
@@ -388,8 +371,6 @@ class SpringExtractor:
 
         impacted_routes = []
         impacted_api_names = set()
-
-        import subprocess
 
         # ============================
         # 🔥 1. CONTROLLER CHANGE
@@ -408,8 +389,9 @@ class SpringExtractor:
 
                 try:
                     diff = subprocess.check_output(
-                        ["git", "diff", "-U0", "HEAD~1", "HEAD", "--", file],
-                        cwd=repo_path
+                        ["git", "diff", "-U0", f"{commit}^", commit, "--", file],
+                        cwd=repo_path,
+                        stderr=subprocess.DEVNULL
                     ).decode()
 
                     self.debug("GIT DIFF", diff)
@@ -473,10 +455,7 @@ class SpringExtractor:
             self.debug("PROCESSING SERVICE FILE", file)
 
             try:
-                with open(full, "rb") as f:
-                    code = f.read()
-
-                tree = self.parser.parse(code)
+                code, tree = self._parse(full)
                 root = tree.root_node
 
                 stack = [root]
@@ -555,24 +534,21 @@ class SpringExtractor:
                     dto = param.get("type")
 
                     # 🔥 find DTO file
-                    for root, _, files in os.walk(repo_path):
-                        for f in files:
-                            if dto in f:
+                    if dto:
+                        for file_path in self._find_dto_files(repo_path, dto):
 
-                                file_path = os.path.join(root, f)
+                            old_code = self.get_old_file_content(repo_path, file_path)
 
-                                old_code = self.get_old_file_content(repo_path, file_path)
+                            if not old_code:
+                                continue
 
-                                if not old_code:
-                                    continue
+                            old_schema = self.extract_dto_schema_from_code(old_code)
+                            new_schema = param.get("schema", {})
 
-                                old_schema = self.extract_dto_schema_from_code(old_code)
-                                new_schema = param.get("schema", {})
+                            breaking = self.detect_breaking_changes(old_schema, new_schema)
 
-                                breaking = self.detect_breaking_changes(old_schema, new_schema)
-
-                                if breaking:
-                                    route["breaking_changes"] = breaking
+                            if breaking:
+                                route["breaking_changes"] = breaking
 
         return impacted_routes
     # ============================
@@ -597,36 +573,18 @@ class SpringExtractor:
 
         return ""
 
-    def _normalize_captures(self, captures):
-        normalized = []
-
-        if isinstance(captures, dict):
-            for name, nodes in captures.items():
-                for node in nodes:
-                    normalized.append((node, name))
-        else:
-            for item in captures:
-                normalized.append((item[0], item[1]))
-
-        return normalized
-
-    def _get_parent(self, node, target_type):
-        while node and node.type != target_type:
-            node = node.parent
-        return node
-
     def _get_text(self, node, code):
-        return code[node.start_byte:node.end_byte].decode()
+        return get_text(node, code)
     
     # ============================
 # DEBUG UTILITY
 # ============================
 
     def debug(self, title, data=None):
-        print(f"\n===== {title} =====")
-        if data is not None:
-            print(data)
-        print("====================\n")
+        if data is None:
+            logger.debug("%s", title)
+        else:
+            logger.debug("%s: %s", title, data)
 
 
     # ============================
@@ -701,51 +659,6 @@ class SpringExtractor:
     # DTO SCHEMA EXTRACTION
     # ============================
 
-    # def extract_dto_schema(self, repo_path, dto_name):
-
-    #     schema = {}
-
-    #     for root, _, files in os.walk(repo_path):
-    #         for f in files:
-    #             if f.endswith(".java") and dto_name in f:
-
-    #                 full = os.path.join(root, f)
-
-    #                 try:
-    #                     with open(full, "rb") as file:
-    #                         code = file.read()
-
-    #                     tree = self.parser.parse(code)
-    #                     root_node = tree.root_node
-
-    #                     stack = [root_node]
-
-    #                     while stack:
-    #                         node = stack.pop()
-
-    #                         if node.type == "field_declaration":
-
-    #                             field_type = None
-    #                             field_name = None
-
-    #                             for c in node.children:
-    #                                 if c.type == "type_identifier":
-    #                                     field_type = self._get_text(c, code)
-
-    #                                 if c.type == "variable_declarator":
-    #                                     for cc in c.children:
-    #                                         if cc.type == "identifier":
-    #                                             field_name = self._get_text(cc, code)
-
-    #                             if field_name:
-    #                                 schema[field_name] = field_type
-
-    #                         stack.extend(node.children)
-
-    #                 except:
-    #                     continue
-
-    #     return schema
     def extract_params(self, method_node, code, repo_path):
 
         params = []
@@ -879,98 +792,23 @@ class SpringExtractor:
     
     def extract_dto_schema(self, repo_path, dto_name):
 
+        if dto_name in self._dto_schemas:
+            return self._dto_schemas[dto_name]
+
         schema = {}
 
-        for root, _, files in os.walk(repo_path):
-            for f in files:
-                if f.endswith(".java") and dto_name in f:
+        for full in self._find_dto_files(repo_path, dto_name):
+            try:
+                code, tree = self._parse(full)
+                schema.update(self._schema_from_tree(tree, code))
+            except Exception as e:
+                logger.debug("Failed to read DTO %s: %s", full, e)
+                continue
 
-                    full = os.path.join(root, f)
-
-                    try:
-                        with open(full, "rb") as file:
-                            code = file.read()
-
-                        tree = self.parser.parse(code)
-                        root_node = tree.root_node
-
-                        stack = [root_node]
-
-                        while stack:
-                            node = stack.pop()
-
-                            if node.type == "field_declaration":
-
-                                field_type = None
-                                field_name = None
-                                validations = {}
-
-                                # 🔥 extract annotations (nested)
-                                annotations = []
-                                inner_stack = [node]
-
-                                while inner_stack:
-                                    n = inner_stack.pop()
-
-                                    if n.type in ["annotation", "marker_annotation"]:
-                                        annotations.append(self._get_text(n, code))
-
-                                    inner_stack.extend(n.children)
-
-                                # 🔥 extract type + name
-                                for c in node.children:
-
-                                    if c.type in [
-                                        "type_identifier",
-                                        "integral_type",
-                                        "floating_point_type",
-                                        "boolean_type"
-                                    ]:
-                                        field_type = self._get_text(c, code)
-
-                                    if c.type == "variable_declarator":
-                                        for cc in c.children:
-                                            if cc.type == "identifier":
-                                                field_name = self._get_text(cc, code)
-
-                                # 🔥 parse validations
-                                for annotation in annotations:
-
-                                    if "NotEmpty" in annotation:
-                                        validations["notEmpty"] = True
-                                        validations["required"] = True
-
-                                    elif "NotNull" in annotation:
-                                        validations["required"] = True
-
-                                    elif "Size" in annotation:
-                                        match_min = re.search(r'min\s*=\s*(\d+)', annotation)
-                                        match_max = re.search(r'max\s*=\s*(\d+)', annotation)
-
-                                        if match_min:
-                                            validations["min"] = int(match_min.group(1))
-                                        if match_max:
-                                            validations["max"] = int(match_max.group(1))
-
-                                # 🔥 build field schema
-                                if field_name:
-
-                                    field_schema = {
-                                        "type": field_type
-                                    }
-
-                                    if validations:
-                                        field_schema["validation"] = validations
-
-                                    schema[field_name] = field_schema
-
-                            stack.extend(node.children)
-
-                    except:
-                        continue
+        self._dto_schemas[dto_name] = schema
 
         return schema
-    
+
     def derive_field_level_errors(self, params):
 
         errors = []
@@ -1001,26 +839,27 @@ class SpringExtractor:
     
     def get_old_file_content(self, repo_path, file_path):
 
-        import subprocess
-
         try:
             relative_path = os.path.relpath(file_path, repo_path)
             content = subprocess.check_output(
-                ["git", "show", f"HEAD~1:{relative_path}"],
-                cwd=repo_path
+                ["git", "show", f"{self._commit}^:{relative_path}"],
+                cwd=repo_path,
+                stderr=subprocess.DEVNULL
             )
 
             return content
 
-        except:
+        except (subprocess.CalledProcessError, OSError):
             return None
         
 
     def extract_dto_schema_from_code(self, code):
+        return self._schema_from_tree(self.parser.parse(code), code)
+
+    def _schema_from_tree(self, tree, code):
 
         schema = {}
 
-        tree = self.parser.parse(code)
         root_node = tree.root_node
 
         stack = [root_node]
@@ -1143,60 +982,53 @@ class SpringExtractor:
     def build_class_metadata(self, repo_path):
         class_map = {}
 
-        for root, _, files in os.walk(repo_path):
-            for f in files:
-                if not f.endswith(".java"):
-                    continue
+        for full in self._iter_java_files(repo_path):
 
-                full = os.path.join(root, f)
+            try:
+                code, tree = self._parse(full)
+                root_node = tree.root_node
 
-                try:
-                    with open(full, "rb") as file:
-                        code = file.read()
+                class_name = None
+                annotations = set()
+                methods = 0
+                fields = 0
+                extends = None
 
-                    tree = self.parser.parse(code)
-                    root_node = tree.root_node
+                stack = [root_node]
 
-                    class_name = None
-                    annotations = set()
-                    methods = 0
-                    fields = 0
-                    extends = None
+                while stack:
+                    node = stack.pop()
 
-                    stack = [root_node]
+                    if node.type == "class_declaration":
+                        for c in node.children:
+                            if c.type == "identifier":
+                                class_name = self._get_text(c, code)
 
-                    while stack:
-                        node = stack.pop()
+                    if node.type == "annotation":
+                        annotations.add(self._get_text(node, code))
 
-                        if node.type == "class_declaration":
-                            for c in node.children:
-                                if c.type == "identifier":
-                                    class_name = self._get_text(c, code)
+                    if node.type == "method_declaration":
+                        methods += 1
 
-                        if node.type == "annotation":
-                            annotations.add(self._get_text(node, code))
+                    if node.type == "field_declaration":
+                        fields += 1
 
-                        if node.type == "method_declaration":
-                            methods += 1
+                    if node.type == "superclass":
+                        extends = self._get_text(node, code)
 
-                        if node.type == "field_declaration":
-                            fields += 1
+                    stack.extend(node.children)
 
-                        if node.type == "superclass":
-                            extends = self._get_text(node, code)
+                if class_name:
+                    class_map[class_name] = {
+                        "annotations": annotations,
+                        "methods": methods,
+                        "fields": fields,
+                        "extends": extends
+                    }
 
-                        stack.extend(node.children)
-
-                    if class_name:
-                        class_map[class_name] = {
-                            "annotations": annotations,
-                            "methods": methods,
-                            "fields": fields,
-                            "extends": extends
-                        }
-
-                except:
-                    continue
+            except Exception as e:
+                logger.debug("Failed to parse %s: %s", full, e)
+                continue
 
         return class_map
     

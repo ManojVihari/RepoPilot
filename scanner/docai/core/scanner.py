@@ -1,6 +1,11 @@
+import logging
 import subprocess
 import os
 from docai.core.plugin_manager import PluginManager
+
+logger = logging.getLogger(__name__)
+
+SOURCE_EXTENSIONS = (".py", ".java")
 
 
 class Scanner:
@@ -13,11 +18,11 @@ class Scanner:
         try:
             changed_files = self.get_changed_files(repo_path, commit)
         except Exception as e:
-            print(f"[ERROR] Failed to get changed files: {e}")
+            logger.error("Failed to get changed files: %s", e)
             changed_files = []
 
         if not changed_files:
-            print("[INFO] No changed files detected")
+            logger.info("No changed files detected")
             return self._empty_result(repo_path, commit)
 
         plugins = self.plugin_manager.load_plugins()
@@ -32,16 +37,17 @@ class Scanner:
 
                     routes = plugin.extractor.process_repository(
                         repo_path,
-                        changed_files
+                        changed_files,
+                        commit
                     )
 
                     all_routes.extend(routes)
 
             except Exception as e:
-                print(f"[ERROR] Plugin {plugin.name} failed: {e}")
+                logger.exception("Plugin %s failed: %s", plugin.name, e)
 
         if not detected_frameworks:
-            print("[WARN] No frameworks detected")
+            logger.warning("No frameworks detected")
 
         return {
             "scanner_version": "1.1",
@@ -51,48 +57,32 @@ class Scanner:
             "routes": all_routes
         }
 
-    # def get_changed_files(self, repo_path, commit):
-
-    #     try:
-    #         result = subprocess.check_output(
-    #             ["git", "diff", "--name-only", f"{commit}~1", commit],
-    #             cwd=repo_path,
-    #             stderr=subprocess.STDOUT
-    #         )
-
-    #         files = result.decode().splitlines()
-
-    #         return [
-    #             f for f in files
-    #             if f.endswith((".py", ".java"))
-    #         ]
-
-    #     except subprocess.CalledProcessError as e:
-    #         raise Exception(e.output.decode())
     def get_changed_files(self, repo_path, commit):
+        """
+        Source files changed by `commit` compared to its first parent.
+
+        Falls back to every tracked source file when the parent is not
+        available (first commit, or a shallow CI clone).
+        """
         try:
-            result = subprocess.check_output(
-                ["git", "ls-files"],
-                cwd=repo_path,
-                stderr=subprocess.STDOUT
-            )
-    
-            files = result.decode().splitlines()
-    
-            print(f"Found {len(files)} git tracked files")
-            print(files[:20])
-    
-            filtered = [
-                f for f in files
-                if f.endswith((".py", ".java"))
-            ]
-    
-            print(f"Found {len(filtered)} source files")
-    
-            return filtered
-    
-        except subprocess.CalledProcessError as e:
-            raise Exception(e.output.decode())
+            files = self._git(repo_path, "diff", "--name-only", f"{commit}^", commit)
+        except subprocess.CalledProcessError:
+            logger.info("No parent commit for %s; scanning all tracked files", commit)
+            files = self._git(repo_path, "ls-files")
+
+        filtered = [f for f in files if f.endswith(SOURCE_EXTENSIONS)]
+
+        logger.info("Found %d changed source files", len(filtered))
+
+        return filtered
+
+    def _git(self, repo_path, *args):
+        result = subprocess.check_output(
+            ["git", *args],
+            cwd=repo_path,
+            stderr=subprocess.STDOUT
+        )
+        return result.decode().splitlines()
 
     def _empty_result(self, repo_path, commit):
         return {

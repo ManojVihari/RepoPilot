@@ -1,7 +1,12 @@
 from tree_sitter import Parser, Language, Query, QueryCursor
 from tree_sitter_python import language as python_language
+from docai.core.files import iter_source_files
+from docai.core.treesitter import normalize_captures, get_parent, get_text, reachable
+import logging
 import os
 import re
+
+logger = logging.getLogger(__name__)
 
 
 class FastAPIExtractor:
@@ -31,6 +36,8 @@ class FastAPIExtractor:
         )
         """)
 
+        self._routes_cache = {}
+
     # ============================
     # MAIN ENTRY (SINGLE FILE)
     # ============================
@@ -43,12 +50,12 @@ class FastAPIExtractor:
         cursor = QueryCursor(self.query)
         captures = cursor.captures(tree.root_node)
 
-        normalized = self._normalize_captures(captures)
+        normalized = normalize_captures(captures)
         routes_map = {}
 
         for node, capture_name in normalized:
 
-            parent = self._get_parent(node, "decorated_definition")
+            parent = get_parent(node, "decorated_definition")
             if not parent:
                 continue
 
@@ -57,7 +64,7 @@ class FastAPIExtractor:
             if key not in routes_map:
                 routes_map[key] = {}
 
-            text = self._get_text(node, code)
+            text = get_text(node, code)
 
             if capture_name == "method":
                 routes_map[key]["method"] = text.upper()
@@ -91,20 +98,36 @@ class FastAPIExtractor:
 
         return list(routes_map.values())
 
+    def _routes_in(self, file_path):
+        """extract_from_file, parsed at most once per process_repository run."""
+
+        key = os.path.normpath(file_path)
+
+        if key not in self._routes_cache:
+            try:
+                self._routes_cache[key] = self.extract_from_file(file_path)
+            except Exception as e:
+                logger.debug("Failed to extract %s: %s", file_path, e)
+                self._routes_cache[key] = []
+
+        return self._routes_cache[key]
+
     # ============================
     # 🔥 NEW: REPOSITORY PROCESSING
     # ============================
 
-    def process_repository(self, repo_path, changed_files):
+    def process_repository(self, repo_path, changed_files, commit=None):
 
-        # 1. full graph
-        graph = self.build_full_graph(repo_path)
+        self._routes_cache = {}
 
-        # 2. changed functions
-        changed_funcs = self.find_changed_functions(repo_path, changed_files)
-
-        # 3. all routes
+        # 1. all routes (every file parsed once, reused below)
         all_routes = self.extract_all_routes(repo_path)
+
+        # 2. full graph
+        graph = self.build_full_graph(all_routes)
+
+        # 3. changed functions
+        changed_funcs = self.find_changed_functions(repo_path, changed_files)
 
         # 4. impacted routes
         impacted = []
@@ -122,32 +145,18 @@ class FastAPIExtractor:
     # GRAPH BUILDING
     # ============================
 
-    def build_full_graph(self, repo_path):
+    def build_full_graph(self, all_routes):
 
         graph = {}
 
-        for root, _, files in os.walk(repo_path):
-            for f in files:
+        for r in all_routes:
+            func = r.get("function")
+            calls = r.get("calls", [])
 
-                if not f.endswith(".py"):
-                    continue
-
-                full = os.path.join(root, f)
-
-                try:
-                    routes = self.extract_from_file(full)
-
-                    for r in routes:
-                        func = r.get("function")
-                        calls = r.get("calls", [])
-
-                        graph[func] = [
-                            self.extract_call_name(c)
-                            for c in calls
-                        ]
-
-                except:
-                    continue
+            graph[func] = [
+                self.extract_call_name(c)
+                for c in calls
+            ]
 
         return graph
 
@@ -169,15 +178,9 @@ class FastAPIExtractor:
             if not os.path.exists(full):
                 continue
 
-            try:
-                routes = self.extract_from_file(full)
-
-                for r in routes:
-                    if "function" in r:
-                        changed.add(r["function"])
-
-            except:
-                continue
+            for r in self._routes_in(full):
+                if "function" in r:
+                    changed.add(r["function"])
 
         return changed
 
@@ -189,18 +192,8 @@ class FastAPIExtractor:
 
         routes = []
 
-        for root, _, files in os.walk(repo_path):
-            for f in files:
-
-                if not f.endswith(".py"):
-                    continue
-
-                full = os.path.join(root, f)
-
-                try:
-                    routes.extend(self.extract_from_file(full))
-                except:
-                    continue
+        for full in iter_source_files(repo_path, ".py"):
+            routes.extend(self._routes_in(full))
 
         return routes
 
@@ -208,57 +201,15 @@ class FastAPIExtractor:
     # IMPACT EXPANSION
     # ============================
 
-    def expand_impact(self, func, graph, visited=None):
-
-        if visited is None:
-            visited = set()
-
-        if func in visited:
-            return []
-
-        visited.add(func)
-
-        impact = []
-
-        for call in graph.get(func, []):
-
-            if call in visited:
-                continue
-
-            impact.append(call)
-
-            deeper = self.expand_impact(call, graph, visited)
-            impact.extend(deeper)
-
-        return list(set(impact))
+    def expand_impact(self, func, graph):
+        return reachable(func, graph, include_start_on_cycle=False)
 
     # ============================
     # HELPERS
     # ============================
 
-    def _normalize_captures(self, captures):
-        normalized = []
-
-        if isinstance(captures, dict):
-            for name, nodes in captures.items():
-                for node in nodes:
-                    normalized.append((node, name))
-        else:
-            for item in captures:
-                if hasattr(item[0], "start_byte"):
-                    normalized.append((item[0], item[1]))
-                else:
-                    normalized.append((item[1], item[0]))
-
-        return normalized
-
-    def _get_parent(self, node, target_type):
-        while node and node.type != target_type:
-            node = node.parent
-        return node
-
     def _get_text(self, node, code):
-        return code[node.start_byte:node.end_byte].decode()
+        return get_text(node, code)
 
     # ============================
     # EXTRACTION METHODS (UNCHANGED)
@@ -324,11 +275,14 @@ class FastAPIExtractor:
 
         while stack:
             node = stack.pop()
-            text = self._get_text(node, code)
 
-            match = re.search(r"status_code\s*=\s*(\d+)", text)
-            if "HTTPException" in text and match:
-                errors.append(int(match.group(1)))
+            if node.type == "call":
+                function = node.child_by_field_name("function")
+
+                if function and self._get_text(function, code).endswith("HTTPException"):
+                    match = re.search(r"status_code\s*=\s*(\d+)", self._get_text(node, code))
+                    if match:
+                        errors.append(int(match.group(1)))
 
             stack.extend(node.children)
 
