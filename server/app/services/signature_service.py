@@ -24,12 +24,20 @@ class SignatureService:
         parameters = route.parameters or route.params or []
         codes = sorted({s.code for s in (route.status_codes or [])})
 
-        return {
+        contract = {
             "method": route.method,
             "path": route.path,
             "parameters": self._sorted(parameters),
             "status_codes": self._sorted(list(route.errors or []) + codes)
         }
+
+        # the response body is contract too (only added when the scanner sends it,
+        # so routes without response data keep their existing signatures)
+        response = route.response or {}
+        if response.get("body_type") or response.get("schema"):
+            contract["response"] = {"body_type": response.get("body_type"), "schema": response.get("schema")}
+
+        return contract
 
     def _sorted(self, items):
         normalized = [self._normalize_obj(i) for i in items]

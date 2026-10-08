@@ -161,7 +161,8 @@
                                 </div>
                                 <div>
                                     <h3 class="text-lg font-semibold text-slate-900">{{ repo }}</h3>
-                                    <p class="text-xs text-slate-500">{{ apis | length }} API(s)</p>
+                                    <p class="text-xs text-slate-500">{{ apis | length }} API(s)
+                                        {% if repo in architectures %} · <a href="/ui/{{ repo }}/architecture" class="text-blue-600 hover:underline"><i class="fas fa-project-diagram"></i> Architecture</a>{% endif %}</p>
                                 </div>
                             </div>
                         </div>

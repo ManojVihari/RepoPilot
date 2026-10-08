@@ -284,6 +284,13 @@
                             <i class="fas fa-tasks"></i>
                             QA Plan
                         </a>
+                        {% if has_architecture %}
+                        <a href="/ui/{{ repo }}/architecture"
+                            class="inline-flex items-center gap-2 px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg transition text-sm font-medium">
+                            <i class="fas fa-project-diagram"></i>
+                            Architecture
+                        </a>
+                        {% endif %}
                         <a href="/ui/{{ repo }}/{{ api }}/dependencies"
                             class="inline-flex items-center gap-2 px-4 py-2 border border-orange-200 text-orange-600 hover:bg-orange-50 rounded-lg transition text-sm font-medium">
                             <i class="fas fa-sitemap"></i>

@@ -388,11 +388,18 @@ class SpringAnalyzer:
         table_ann = t.annotation("Table", "Document", "RedisHash", "Node")
         table = None
         if table_ann:
-            table = self.string(table_ann.arg("name", "value", "collection"), None, t)
+            table = self.string(table_ann.arg("name", "value", "collection", "indexName"), None, t)
         entity_ann = t.annotation("Entity")
         jpa_name = self.string(entity_ann.arg("name"), None, t) if entity_ann else None
 
-        if t.has_annotation("Document", "RedisHash"):
+        document_import = t.imports.get("Document", "")
+        if t.has_annotation("Document") and ("elasticsearch" in document_import or t.annotation("Document").arg("indexName")):
+            store = "elasticsearch"
+            default_table = t.name[0].lower() + t.name[1:]
+        elif t.has_annotation("Document") and "couchbase" in document_import:
+            store = "couchbase"
+            default_table = t.name[0].lower() + t.name[1:]
+        elif t.has_annotation("Document", "RedisHash"):
             store = "mongodb" if t.has_annotation("Document") else "redis"
             default_table = t.name[0].lower() + t.name[1:]
         else:

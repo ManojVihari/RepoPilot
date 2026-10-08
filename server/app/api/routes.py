@@ -9,12 +9,15 @@ from fastapi.templating import Jinja2Templates
 from app.config import TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
 from app.services import docs_store
-from app.services.architecture_store import load_architecture, save_architecture
+from app.services.architecture_store import has_architecture, load_architecture, save_architecture
 from app.services.qa_plan_service import QAPlanService
 from app.services.doc_service import process_routes
 from app.services.llm_service import summarize_changes, search_apis_rag, answer_question_based_on_docs
 from app.services.qa_plan_generator import generate_full_qa_plan
-from app.services.dependency_analyzer import get_impact_analysis, build_dependency_graph
+from app.services.dependency_analyzer import (
+    analyze_endpoint_impact, build_architecture_graph, build_dependency_graph, get_impact_analysis
+)
+from app.services.version_service import VersionService
 from app.services.test_templates import (
     get_predefined_templates, list_templates, create_template,
     get_template_recommendations
@@ -24,6 +27,7 @@ from bs4 import BeautifulSoup
 
 router = APIRouter()
 qa_plan_service = QAPlanService()
+version_service = VersionService()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 DOC_MARKDOWN_EXTENSIONS = [
@@ -40,7 +44,8 @@ def _nav_context(repo):
     """Sidebar data shared by the per-API pages."""
     return {
         "apis": [{"name": api} for api in docs_store.list_apis(repo)],
-        "repos": docs_store.list_repos()
+        "repos": docs_store.list_repos(),
+        "has_architecture": has_architecture(repo),
     }
 
 
@@ -63,6 +68,20 @@ def _repos_overview(include_version_count=False):
             data[repo] = apis
 
     return data
+
+
+def _impact(repo, api, v1, v2, v1_content, v2_content):
+    """Scanner-based impact analysis when structured data exists, docs-based otherwise."""
+    impact = analyze_endpoint_impact(
+        repo, api, v1, v2,
+        version_service.get_route(repo, api, v1) if v1 else None,
+        version_service.get_route(repo, api, v2),
+        load_architecture(repo),
+    )
+    if impact is None:
+        impact = get_impact_analysis(repo, api, v1_content, v2_content)
+        impact["source"] = "docs"
+    return impact
 
 
 def _default_versions(versions, v1, v2):
@@ -122,10 +141,11 @@ def ui_home(request: Request):
 @router.get("/ui/all", response_class=HTMLResponse)
 def ui_all_apis(request: Request):
     """Display all APIs from all repositories in a unified view"""
+    data = _repos_overview(include_version_count=True)
     return templates.TemplateResponse(
         request,
         "all_apis.html",
-        {"data": _repos_overview(include_version_count=True)}
+        {"data": data, "architectures": [repo for repo in data if has_architecture(repo)]}
     )
 
 
@@ -297,6 +317,31 @@ def _render_doc_page(request, repo, api, version, md_content):
             "version": version,
             "content": html_content,
             "toc": toc,
+            **_nav_context(repo)
+        }
+    )
+
+
+@router.get("/ui/{repo}/architecture", response_class=HTMLResponse)
+def architecture_page(request: Request, repo: str):
+    """Application model of a repository: system graph, modules, components, data, messaging."""
+    document = load_architecture(repo)
+    model = (document or {}).get("architecture", {}).get("spring") if document else None
+
+    if model is None:
+        return HTMLResponse(
+            f"No architecture stored for '{repo}'. Run the scanner (scanner_version 2.0+) with --server.",
+            status_code=404,
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "architecture.html",
+        {
+            "repo": repo,
+            "commit": document.get("commit"),
+            "model": model,
+            "system_graph": build_architecture_graph(document, "system"),
             **_nav_context(repo)
         }
     )
@@ -545,18 +590,23 @@ def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = None, fo
 # ============================================================================
 
 @router.get("/api/dependency-graph")
-def get_dependency_graph_api(repo: str):
+def get_dependency_graph_api(repo: str, view: str = "system", module: str = None):
     """
-    Get dependency graph for a repository showing API relationships.
-    
-    Query params:
-        repo: Repository name
+    Dependency graph of a repository.
+
+    Uses the scanner's application model when one is stored (view=system:
+    modules and external systems, view=components: beans, optionally of one
+    module); falls back to relationships guessed from the docs.
     """
     if not docs_store.is_safe_name(repo):
         return JSONResponse({"nodes": [], "links": []})
 
+    graph = build_architecture_graph(load_architecture(repo), view, module)
+    if graph is not None:
+        return JSONResponse({**graph, "repo": repo, "source": "scanner", "view": view})
+
     graph = build_dependency_graph(repo)
-    return JSONResponse(graph)
+    return JSONResponse({**graph, "source": "docs"})
 
 
 @router.get("/api/impact-analysis")
@@ -570,11 +620,18 @@ def get_impact_analysis_api(repo: str, api: str, v1: int, v2: int):
         v1: Version 1
         v2: Version 2
     """
+    if not docs_store.api_path(repo, api):
+        return JSONResponse({"error": f"API '{api}' not found in repository '{repo}'"}, status_code=404)
+
+    versions = docs_store.list_versions(repo, api)
+    missing = [v for v in (v1, v2) if v not in versions]
+    if missing:
+        return JSONResponse({"error": f"Version(s) {missing} not found", "versions": versions}, status_code=404)
+
     v1_content = docs_store.read_version(repo, api, v1) or ""
     v2_content = docs_store.read_version(repo, api, v2) or ""
 
-    impact = get_impact_analysis(repo, api, v1_content, v2_content)
-    return JSONResponse(impact)
+    return JSONResponse(_impact(repo, api, v1, v2, v1_content, v2_content))
 
 
 # ============================================================================
@@ -653,7 +710,7 @@ def dependencies_view(request: Request, repo: str, api: str, v1: int = None, v2:
 
     v1_content = (docs_store.read_version(repo, api, v1) if v1 else None) or ""
 
-    impact_data = get_impact_analysis(repo, api, v1_content, v2_content)
+    impact_data = _impact(repo, api, v1, v2, v1_content, v2_content)
 
     return templates.TemplateResponse(
         request,

@@ -47,7 +47,18 @@ class VersionService:
         return True, latest["version"] + 1
 
 
-    def save_version(self, repository, api_name, version, signature, commit_hash, content):
+    def get_version(self, repository, api_name, version):
+        return next(
+            (v for v in self.get_versions(repository, api_name) if v.get("version") == version),
+            None
+        )
+
+    def get_route(self, repository, api_name, version):
+        """Structured route data the scanner sent for a version (None for older versions)."""
+        entry = self.get_version(repository, api_name, version)
+        return entry.get("route") if entry else None
+
+    def save_version(self, repository, api_name, version, signature, commit_hash, content, route=None):
 
         file_path = self._get_file(repository, api_name)
 
@@ -59,6 +70,9 @@ class VersionService:
             "commit_hash": commit_hash,
             "content": content
         }
+
+        if route is not None:
+            new_entry["route"] = route
 
         versions.append(new_entry)
 

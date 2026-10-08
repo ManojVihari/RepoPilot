@@ -183,3 +183,141 @@ def test_status_code_source_does_not_change_signature():
 
     fewer = dict(route, status_codes=route["status_codes"][:1])
     assert signature.generate(Route(**route)) != signature.generate(Route(**fewer))
+
+
+# ============================
+# ARCHITECTURE PAGE & SCANNER-BASED IMPACT ANALYSIS
+# ============================
+
+from app.services import architecture_view
+from app.services.dependency_analyzer import contract_changes
+
+SPRING_SCAN_V2 = Path(__file__).parent / "fixtures" / "spring_shop_scan_v2.json"
+
+
+@pytest.fixture
+def two_versions(client, isolated_storage, monkeypatch):
+    """spring-shop scanned at two commits (DTO, response and payment URL changed)."""
+    monkeypatch.setattr(routes.version_service, "base_path", str(isolated_storage / "database"))
+    for scan in (SPRING_SCAN, SPRING_SCAN_V2):
+        assert client.post("/analyze", json=json.loads(scan.read_text())).status_code == 200
+    return client
+
+
+def test_versions_store_structured_route_data(two_versions):
+    assert docs_store.list_versions("spring-shop", "create") == [1, 2]
+    # response shape changed -> get/list got a new version too; cancel did not change
+    assert docs_store.list_versions("spring-shop", "get") == [1, 2]
+    assert docs_store.list_versions("spring-shop", "cancel") == [1]
+
+    route = routes.version_service.get_route("spring-shop", "create", 2)
+    assert route["handler"] == "OrderController.create"
+    assert route["integrations"]["external_apis"][0]["url"].endswith("/v2/charges/{id}")
+
+
+def test_impact_analysis_compares_versions(two_versions):
+    impact = two_versions.get("/api/impact-analysis", params={"repo": "spring-shop", "api": "create", "v1": 1, "v2": 2}).json()
+
+    assert impact["source"] == "scanner"
+    changes = [(c["severity"], c["type"], c["detail"]) for c in impact["breaking_changes"]["changes"]]
+    assert changes == [
+        ("breaking", "VALIDATION_CHANGED", "`lines.quantity` minimum: 1 → 5"),
+        ("breaking", "REQUEST_FIELD_ADDED", "`lines.warehouse` (String) is required"),
+        ("breaking", "RESPONSE_FIELD_TYPE_CHANGED", "`status`: String → OrderStatus"),
+        ("additive", "RESPONSE_FIELD_ADDED", "`trackingUrl` (String)"),
+    ]
+    assert impact["breaking_changes"]["impact_level"] == "high"
+
+    external = impact["downstream_changes"]["external_apis"]
+    assert external["added"][0].startswith("POST https://api.payments.example.com/v2/charges/{id}")
+    assert external["removed"][0].startswith("POST https://api.payments.example.com/v1/charges/{id}")
+
+    shared = {(s["kind"], s["name"]) for s in impact["shared_resources"]}
+    assert {("table", "orders"), ("cache", "orders"), ("topic", "orders.created.v1")} <= shared
+
+    graph_nodes = {n["id"] for n in impact["dependency_graph"]["nodes"]}
+    assert {"table:orders", "topic:orders.created.v1", "service:api.payments.example.com"} <= graph_nodes
+
+    missing = two_versions.get("/api/impact-analysis", params={"repo": "spring-shop", "api": "cancel", "v1": 1, "v2": 2})
+    assert missing.status_code == 404
+
+
+def test_architecture_and_dependency_pages_render(two_versions):
+    page = two_versions.get("/ui/spring-shop/architecture")
+    assert page.status_code == 200
+    assert "spring-shop architecture" in page.text
+    assert "orders.created.v1" in page.text
+    assert "api.payments.example.com" in page.text
+
+    deps = two_versions.get("/ui/spring-shop/create/dependencies", params={"v1": 1, "v2": 2})
+    assert deps.status_code == 200
+    assert "Based on scanner data" in deps.text
+    assert "REQUEST_FIELD_ADDED" in deps.text
+
+    assert two_versions.get("/ui/spring-shop/create").text.count('href="/ui/spring-shop/architecture"') == 1
+    assert two_versions.get("/ui/unknown-repo/architecture").status_code == 404
+
+
+def test_dependency_graph_api_views(two_versions):
+    system = two_versions.get("/api/dependency-graph", params={"repo": "spring-shop"}).json()
+    assert system["source"] == "scanner"
+    assert all(n["type"] != "component" for n in system["nodes"])
+    links = {(l["source"], l["target"], l["kind"]) for l in system["links"]}
+    assert ("module:", "broker:kafka", "publishes") in links
+    assert ("module:", "external:api.payments.example.com", "http") in links
+
+    components = two_versions.get("/api/dependency-graph", params={"repo": "spring-shop", "view": "components", "module": ""}).json()
+    kinds = {l["kind"] for l in components["links"]}
+    assert {"injects", "calls", "write", "publishes", "http"} <= kinds
+
+
+def test_contract_changes_for_params_and_security():
+    old = {"method": "GET", "path": "/items", "params": [
+        {"name": "q", "in": "query", "type": "String", "required": False},
+        {"name": "id", "in": "path", "type": "Long", "required": True},
+    ], "status_codes": [{"code": 200}], "security": {"annotations": []}}
+    new = {"method": "GET", "path": "/items", "params": [
+        {"name": "q", "in": "query", "type": "String", "required": True},
+        {"name": "tenant", "in": "header", "type": "String", "required": True},
+    ], "status_codes": [{"code": 200}, {"code": 404}],
+        "security": {"annotations": [{"annotation": "PreAuthorize", "expression": "hasRole('ADMIN')"}]}}
+
+    found = {(c["type"], c["severity"]) for c in contract_changes(old, new)}
+    assert found == {
+        ("PARAM_NOW_REQUIRED", "breaking"),
+        ("PARAM_ADDED", "breaking"),
+        ("PARAM_REMOVED", "breaking"),      # path parameter
+        ("ERROR_STATUS_ADDED", "minor"),
+        ("SECURITY_CHANGED", "breaking"),
+    }
+
+
+def test_consumers_from_feign_calls_and_gateway_routes():
+    model = {
+        "modules": [
+            {"path": "stats", "name": "stats", "runtime": {"application_name": "statistics-service", "context_path": "/statistics"}},
+            {"path": "account", "name": "account", "runtime": {"application_name": "account-service"}},
+            {"path": "gateway", "name": "gateway", "runtime": {"application_name": "gateway"}},
+        ],
+        "endpoints": [{"method": "PUT", "path": "/{accountName}", "handler": "StatisticsController.save", "module": "stats"}],
+        "graph": {
+            "nodes": [
+                {"id": "module:stats", "type": "module", "name": "statistics-service", "path": "stats"},
+                {"id": "module:gateway", "type": "module", "name": "gateway", "path": "gateway"},
+                {"id": "module:account", "type": "module", "name": "account-service", "path": "account"},
+                {"id": "component:a.AccountServiceImpl", "type": "component", "name": "AccountServiceImpl", "module": "account"},
+            ],
+            "edges": [
+                {"from": "component:a.AccountServiceImpl", "to": "module:stats", "kind": "http", "details": ["PUT /statistics/{accountName}"]},
+                {"from": "module:account", "to": "module:stats", "kind": "http", "details": ["PUT /statistics/{accountName}"]},
+                {"from": "module:account", "to": "module:stats", "kind": "http", "details": ["GET /statistics/current"]},
+                {"from": "module:gateway", "to": "module:stats", "kind": "routes", "details": ["/statistics/**"]},
+            ],
+        },
+    }
+
+    found = architecture_view.consumers(model, model["endpoints"][0])
+    assert [(c["kind"], c["caller"], c["caller_module"]) for c in found] == [
+        ("service_call", "AccountServiceImpl", "account-service"),
+        ("gateway_route", "gateway", "gateway"),
+    ]

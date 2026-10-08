@@ -57,5 +57,6 @@ def process_routes(routes, commit, repository):
             version=version,
             signature=signature,
             commit_hash=commit,
-            content=documentation
+            content=documentation,
+            route=route.model_dump(mode="json")
         )

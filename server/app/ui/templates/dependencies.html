@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="/static/graph.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
@@ -20,11 +21,22 @@
         }
 
         #graph {
+            position: relative;
             background: linear-gradient(135deg, #f8fafc 0%, #f0f9ff 100%);
             border-radius: 8px;
             border: 1px solid #e2e8f0;
-            height: 500px;
+            min-height: 500px;
+            overflow: hidden;
         }
+
+        .graph-tooltip { position: absolute; display: none; max-width: 420px; background: #0f172a; color: #f8fafc; font-size: 12px; padding: 8px 10px; border-radius: 6px; pointer-events: none; z-index: 10; word-break: break-all; }
+        .graph-node-label { font-size: 11px; fill: #334155; text-anchor: middle; pointer-events: none; }
+        .graph-link-label { font-size: 9px; fill: #94a3b8; text-anchor: middle; pointer-events: none; }
+        .sev { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9999px; text-transform: uppercase; }
+        .sev-breaking { background: #fee2e2; color: #991b1b; }
+        .sev-minor { background: #fef3c7; color: #92400e; }
+        .sev-additive { background: #d1fae5; color: #065f46; }
+        .chip { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 9999px; background: #f1f5f9; color: #334155; margin: 2px 2px 2px 0; }
 
         .node {
             stroke: #1e40af;
@@ -95,24 +107,40 @@
             <span class="text-slate-400">/</span>
             <span class="text-slate-600 text-sm font-semibold">Dependency Analysis</span>
         </div>
+        <div class="flex items-center gap-4">
+        {% if impact_data.has_architecture %}
+        <a href="/ui/{{ repo }}/architecture" class="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-2">
+            <i class="fas fa-project-diagram"></i> Architecture
+        </a>
+        {% endif %}
         <a href="/ui/{{ repo }}/{{ api }}" class="text-slate-600 hover:text-slate-900 text-sm flex items-center gap-2">
             <i class="fas fa-arrow-left"></i> Back to API
         </a>
+        </div>
     </div>
 </div>
 
 <!-- Main Content -->
 <div class="max-w-7xl mx-auto px-4 py-8">
+{% set bc = impact_data.breaking_changes %}
+{% set scanner = impact_data.source == 'scanner' %}
 
     <!-- Header -->
     <div class="mb-8 fade-in">
         <h1 class="text-4xl font-bold text-slate-900 mb-2">Dependency Analysis</h1>
         <p class="text-slate-600">
-            <strong>API:</strong> {{ api }} 
+            <strong>API:</strong> {{ api }}
             <span class="text-slate-400 mx-2">|</span>
             <strong>Repository:</strong> {{ repo }}
             <span class="text-slate-400 mx-2">|</span>
-            <strong>Upgrade:</strong> v{{ v1 }} → v{{ v2 }}
+            <strong>Upgrade:</strong> {% if v1 %}v{{ v1 }} → {% endif %}v{{ v2 }}
+        </p>
+        <p class="mt-2 text-sm">
+            {% if scanner %}
+            <span class="chip"><i class="fas fa-check-circle text-green-600 mr-1"></i>Based on scanner data{% if not impact_data.has_route_data.v1 and v1 %} (v{{ v1 }} predates structured data: comparing against the scanner's change report){% endif %}</span>
+            {% else %}
+            <span class="chip"><i class="fas fa-exclamation-circle text-amber-600 mr-1"></i>Estimated from documentation text - run the scanner (2.0+) for exact results</span>
+            {% endif %}
         </p>
     </div>
 
@@ -121,75 +149,152 @@
         <div class="bg-white p-6 rounded-lg border border-slate-200">
             <div class="text-slate-600 text-sm font-semibold mb-2">Impact Level</div>
             <div class="text-2xl font-bold">
-                {% if impact_data.breaking_changes.impact_level == 'high' %}
-                    <span class="text-red-600">🔴 HIGH</span>
-                {% elif impact_data.breaking_changes.impact_level == 'medium' %}
-                    <span class="text-amber-600">🟡 MEDIUM</span>
-                {% elif impact_data.breaking_changes.impact_level == 'low' %}
-                    <span class="text-green-600">🟢 LOW</span>
-                {% else %}
-                    <span class="text-blue-600">⭕ NONE</span>
-                {% endif %}
+                {% if bc.impact_level == 'high' %}<span class="text-red-600">🔴 HIGH</span>
+                {% elif bc.impact_level == 'medium' %}<span class="text-amber-600">🟡 MEDIUM</span>
+                {% elif bc.impact_level == 'low' %}<span class="text-green-600">🟢 LOW</span>
+                {% else %}<span class="text-blue-600">⭕ NONE</span>{% endif %}
             </div>
         </div>
-
+        {% if scanner %}
+        <div class="bg-white p-6 rounded-lg border border-slate-200">
+            <div class="text-slate-600 text-sm font-semibold mb-2">Breaking Changes</div>
+            <div class="text-2xl font-bold text-slate-900">{{ bc.breaking_count }} <span class="text-sm font-normal text-slate-500">of {{ bc.changes | length }}</span></div>
+        </div>
+        <div class="bg-white p-6 rounded-lg border border-slate-200">
+            <div class="text-slate-600 text-sm font-semibold mb-2">Calling Services</div>
+            <div class="text-2xl font-bold text-slate-900">{{ impact_data.consumers | length }}</div>
+        </div>
+        {% else %}
         <div class="bg-white p-6 rounded-lg border border-slate-200">
             <div class="text-slate-600 text-sm font-semibold mb-2">Removed Endpoints</div>
-            <div class="text-2xl font-bold text-slate-900">{{ impact_data.breaking_changes.removed_endpoints|length }}</div>
+            <div class="text-2xl font-bold text-slate-900">{{ bc.removed_endpoints|length }}</div>
         </div>
-
         <div class="bg-white p-6 rounded-lg border border-slate-200">
             <div class="text-slate-600 text-sm font-semibold mb-2">Added Endpoints</div>
-            <div class="text-2xl font-bold text-slate-900">{{ impact_data.breaking_changes.added_endpoints|length }}</div>
+            <div class="text-2xl font-bold text-slate-900">{{ bc.added_endpoints|length }}</div>
         </div>
-
+        {% endif %}
         <div class="bg-white p-6 rounded-lg border border-slate-200">
             <div class="text-slate-600 text-sm font-semibold mb-2">Affected APIs</div>
             <div class="text-2xl font-bold text-slate-900">{{ impact_data.affected_apis|length }}</div>
         </div>
     </div>
 
-    <!-- Breaking Changes -->
+    {% if scanner %}
+    {% set ep = impact_data.endpoint %}
+    <div class="bg-white rounded-lg border border-slate-200 p-6 mb-8">
+        <div class="flex flex-wrap items-center gap-3">
+            <span class="chip font-bold">{{ ep.method }}</span>
+            <code class="text-lg">{{ ep.path }}</code>
+            <span class="text-slate-500 text-sm">{{ ep.handler }}{% if ep.module %} · {{ ep.module }}{% endif %}</span>
+        </div>
+        {% if not v1 %}
+        <div class="mt-3 text-sm text-slate-500">First documented version - nothing to compare against yet.</div>
+        {% elif impact_data.change_reasons %}
+        <div class="mt-3 text-sm text-slate-700"><b>Why this version changed:</b>
+            {% for r in impact_data.change_reasons[:12] %}<span class="chip">{{ r }}</span>{% endfor %}
+            {% if impact_data.change_reasons | length > 12 %}<span class="text-slate-500">… +{{ impact_data.change_reasons | length - 12 }} more</span>{% endif %}</div>
+        {% endif %}
+    </div>
+
+    <!-- Contract changes -->
+    <div class="bg-white rounded-lg border border-slate-200 p-6 mb-8">
+        <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <i class="fas fa-exclamation-triangle text-amber-600"></i> Contract Changes
+        </h2>
+        {% if bc.changes %}
+        <div class="space-y-2">
+            {% for c in bc.changes %}
+            <div class="flex items-start gap-3 p-3 rounded border border-slate-200">
+                <span class="sev sev-{{ c.severity }}">{{ c.severity }}</span>
+                <div class="text-sm"><code class="font-semibold">{{ c.type }}</code> <span class="text-slate-700">{{ c.detail }}</span></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-slate-600 text-sm">No contract changes between these versions.</p>
+        {% endif %}
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <!-- Consumers -->
+        <div class="bg-white rounded-lg border border-slate-200 p-6">
+            <h2 class="text-xl font-bold text-slate-900 mb-3"><i class="fas fa-arrow-right-to-bracket text-cyan-600 mr-2"></i>Who calls this API</h2>
+            {% for c in impact_data.consumers %}
+            <div class="text-sm py-2 border-b border-slate-100">
+                <b>{{ c.caller }}</b>{% if c.caller_module and c.caller_module != c.caller %} <span class="text-slate-500">({{ c.caller_module }})</span>{% endif %}
+                <span class="chip">{{ 'gateway route' if c.kind == 'gateway_route' else 'service call' }}</span>
+                <div class="text-xs text-slate-500 font-mono">{{ c.detail }}</div>
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500">No calls from other services or gateways found in the scanned repository. External clients are not visible to static analysis.</p>
+            {% endfor %}
+        </div>
+
+        <!-- Shared resources -->
+        <div class="bg-white rounded-lg border border-slate-200 p-6">
+            <h2 class="text-xl font-bold text-slate-900 mb-3"><i class="fas fa-share-nodes text-purple-600 mr-2"></i>Shared resources</h2>
+            {% for sr in impact_data.shared_resources %}
+            <div class="text-sm py-2 border-b border-slate-100">
+                <span class="chip">{{ sr.kind }}</span> <code>{{ sr.name }}</code>
+                <div class="text-xs text-slate-600 mt-1">also used by: {{ sr.also_used_by[:6] | join('; ') }}{% if sr.also_used_by | length > 6 %} … +{{ sr.also_used_by | length - 6 }}{% endif %}</div>
+            </div>
+            {% else %}
+            <p class="text-sm text-slate-500">This API shares no tables, caches or topics with other endpoints.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Downstream -->
+    <div class="bg-white rounded-lg border border-slate-200 p-6 mb-8">
+        <h2 class="text-xl font-bold text-slate-900 mb-3"><i class="fas fa-arrow-right-from-bracket text-emerald-600 mr-2"></i>What this API depends on (v{{ v2 }})</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            {% for group, label in [('databases', 'Databases'), ('caches', 'Caches'), ('messaging', 'Messaging'), ('external_apis', 'External APIs'), ('other', 'Other')] %}
+            {% set items = impact_data.downstream[group] %}
+            {% set delta = impact_data.downstream_changes.get(group, {}) %}
+            {% if items or delta %}
+            <div>
+                <div class="font-semibold text-slate-700 mb-1">{{ label }}</div>
+                {% for item in items %}
+                <div class="font-mono text-xs py-0.5">{% if item in delta.get('added', []) %}<span class="text-green-700 font-bold">+ </span>{% endif %}{{ item }}</div>
+                {% endfor %}
+                {% for item in delta.get('removed', []) %}
+                <div class="font-mono text-xs py-0.5 text-red-700 line-through">{{ item }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+        {% if impact_data.downstream_changes %}
+        <p class="text-xs text-slate-500 mt-3"><span class="text-green-700 font-bold">+</span> new in v{{ v2 }}, <span class="line-through text-red-700">struck</span> no longer used.</p>
+        {% endif %}
+    </div>
+
+    {% else %}
+    <!-- Docs-based breaking changes -->
     <div class="bg-white rounded-lg border border-slate-200 p-6 mb-8">
         <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
             <i class="fas fa-exclamation-triangle text-amber-600"></i> Breaking Changes
         </h2>
-        
-        {% if impact_data.breaking_changes.removed_endpoints %}
-        <div class="mb-6">
-            <h3 class="font-semibold text-slate-900 mb-3">Removed Endpoints</h3>
-            <div class="space-y-2">
-                {% for endpoint in impact_data.breaking_changes.removed_endpoints %}
-                <div class="flex items-center gap-2 p-3 bg-red-50 rounded border border-red-200">
-                    <i class="fas fa-times-circle text-red-600"></i>
-                    <code class="text-sm font-mono text-red-900">{{ endpoint }}</code>
-                </div>
-                {% endfor %}
-            </div>
+        {% for endpoint in bc.removed_endpoints %}
+        <div class="flex items-center gap-2 p-3 mb-2 bg-red-50 rounded border border-red-200">
+            <i class="fas fa-times-circle text-red-600"></i><code class="text-sm font-mono text-red-900">{{ endpoint }}</code>
         </div>
-        {% endif %}
-
-        {% if impact_data.breaking_changes.added_endpoints %}
-        <div class="mb-6">
-            <h3 class="font-semibold text-slate-900 mb-3">Added Endpoints</h3>
-            <div class="space-y-2">
-                {% for endpoint in impact_data.breaking_changes.added_endpoints %}
-                <div class="flex items-center gap-2 p-3 bg-green-50 rounded border border-green-200">
-                    <i class="fas fa-plus-circle text-green-600"></i>
-                    <code class="text-sm font-mono text-green-900">{{ endpoint }}</code>
-                </div>
-                {% endfor %}
-            </div>
+        {% endfor %}
+        {% for endpoint in bc.added_endpoints %}
+        <div class="flex items-center gap-2 p-3 mb-2 bg-green-50 rounded border border-green-200">
+            <i class="fas fa-plus-circle text-green-600"></i><code class="text-sm font-mono text-green-900">{{ endpoint }}</code>
         </div>
-        {% endif %}
+        {% endfor %}
+        {% if not bc.removed_endpoints and not bc.added_endpoints %}<p class="text-slate-600 text-sm">No endpoint changes detected in the documentation text.</p>{% endif %}
     </div>
+    {% endif %}
 
     <!-- Recommendations -->
     <div class="bg-white rounded-lg border border-slate-200 p-6 mb-8">
         <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
             <i class="fas fa-lightbulb text-blue-600"></i> Recommendations
         </h2>
-        
         <div class="space-y-3">
             {% for rec in impact_data.recommendations %}
             <div class="flex gap-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -206,16 +311,14 @@
         <h2 class="text-2xl font-bold text-slate-900 mb-4 flex items-center gap-2">
             <i class="fas fa-sitemap text-purple-600"></i> Dependency Graph
         </h2>
-        
-        <p class="text-slate-600 text-sm mb-4">
-            Total APIs in repository: <strong>{{ impact_data.dependency_graph.total_apis }}</strong>
-        </p>
-        
         <div id="graph"></div>
-        
-        <div class="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200 text-sm text-blue-900">
+        <div class="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200 text-sm text-blue-900">
             <i class="fas fa-info-circle"></i>
-            <strong>Legend:</strong> Nodes represent APIs, connections show relationships. Larger nodes = more dependencies.
+            {% if scanner %}
+            <strong>Legend:</strong> the endpoint in the middle; callers point at it; arrows out are the tables, caches, topics and services it uses; grey nodes are other endpoints sharing those resources. Hover for details.
+            {% else %}
+            <strong>Legend:</strong> nodes are documented APIs; links are relationships guessed from shared paths and names.
+            {% endif %}
         </div>
     </div>
     {% endif %}
@@ -223,82 +326,10 @@
 </div>
 
 <script>
-    // Simple D3 visualization
-    const data = {{ impact_data.dependency_graph|safe }};
-    
-    if (data.nodes && data.nodes.length > 0) {
-        const width = document.getElementById('graph').clientWidth;
-        const height = 500;
-
-        const svg = d3.select("#graph")
-            .append("svg")
-            .attr("width", width)
-            .attr("height", height);
-
-        const simulation = d3.forceSimulation(data.nodes)
-            .force("link", d3.forceLink(data.links).id(d => d.id).distance(100))
-            .force("charge", d3.forceManyBody().strength(-300))
-            .force("center", d3.forceCenter(width / 2, height / 2));
-
-        const link = svg.append("g")
-            .selectAll("line")
-            .data(data.links)
-            .enter()
-            .append("line")
-            .attr("class", "link");
-
-        const node = svg.append("g")
-            .selectAll("circle")
-            .data(data.nodes)
-            .enter()
-            .append("circle")
-            .attr("class", "node")
-            .attr("r", 20)
-            .call(d3.drag()
-                .on("start", dragstarted)
-                .on("drag", dragged)
-                .on("end", dragended));
-
-        const label = svg.append("g")
-            .selectAll("text")
-            .data(data.nodes)
-            .enter()
-            .append("text")
-            .attr("class", "node-label")
-            .text(d => d.label.substring(0, 10));
-
-        simulation.on("tick", () => {
-            link
-                .attr("x1", d => d.source.x)
-                .attr("y1", d => d.source.y)
-                .attr("x2", d => d.target.x)
-                .attr("y2", d => d.target.y);
-
-            node
-                .attr("cx", d => d.x)
-                .attr("cy", d => d.y);
-
-            label
-                .attr("x", d => d.x)
-                .attr("y", d => d.y + 5);
-        });
-
-        function dragstarted(event, d) {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
-        }
-
-        function dragged(event, d) {
-            d.fx = event.x;
-            d.fy = event.y;
-        }
-
-        function dragended(event, d) {
-            if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
-        }
+    const graphData = {{ impact_data.dependency_graph | tojson }};
+    if (graphData.nodes && graphData.nodes.length > 0) {
+        graphData.links = (graphData.links || []).map(l => Object.assign({kind: l.type || ""}, l));
+        renderGraph(document.getElementById("graph"), graphData, {height: 520});
     }
 </script>
 

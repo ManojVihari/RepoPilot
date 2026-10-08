@@ -38,6 +38,10 @@ def save_architecture(repository: str, commit: str, architecture: dict) -> bool:
     return True
 
 
+def has_architecture(repository: str) -> bool:
+    return is_safe_name(repository) and os.path.isfile(os.path.join(ARCHITECTURE_DIR, repository, "latest.json"))
+
+
 def load_architecture(repository: str, commit: Optional[str] = None) -> Optional[dict]:
     if not is_safe_name(repository):
         return None
