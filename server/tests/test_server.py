@@ -495,3 +495,73 @@ def test_qa_plan_shows_progress_then_the_generated_plan(two_versions, monkeypatc
     # regenerate goes through the progress page again, with force
     assert "Regenerating the test plan" in two_versions.get(url, params={"force": "true"}).text
     assert len(calls) == 1
+
+
+def _layered_model():
+    nodes = [
+        {"id": "module:gateway", "type": "module", "name": "gateway", "path": "gateway", "spring_boot_app": True},
+        {"id": "module:orders", "type": "module", "name": "orders", "path": "orders", "spring_boot_app": True, "port": 8081},
+        {"id": "module:billing", "type": "module", "name": "billing", "path": "billing", "spring_boot_app": True},
+        {"id": "module:common", "type": "module", "name": "common", "path": "common", "spring_boot_app": False},
+        {"id": "component:o.OrderController", "type": "component", "name": "OrderController", "module": "orders", "layer": "web", "stereotype": "rest_controller"},
+        {"id": "component:o.OrderService", "type": "component", "name": "OrderService", "module": "orders", "layer": "service", "stereotype": "service"},
+        {"id": "component:o.OrderMapper", "type": "component", "name": "OrderMapper", "module": "orders", "layer": "data", "stereotype": "repository"},
+        {"id": "component:o.OrderConfig", "type": "component", "name": "OrderConfig", "module": "orders", "layer": "config", "stereotype": "configuration"},
+        {"id": "store:orders:mybatis", "type": "datastore", "technology": "mybatis", "module": "orders", "profiles": ["dev: mysql"]},
+        {"id": "datastore:mysql:db/shop", "type": "datastore", "technology": "mysql", "host": "db", "database": "shop"},
+        {"id": "broker:rabbitmq", "type": "broker", "technology": "rabbitmq"},
+        {"id": "infra:discovery:eureka", "type": "infrastructure", "technology": "eureka"},
+    ]
+    edges = [
+        {"from": "module:gateway", "to": "module:orders", "kind": "routes", "details": ["Path=/orders/**"]},
+        {"from": "component:o.OrderController", "to": "component:o.OrderService", "kind": "calls"},
+        {"from": "component:o.OrderService", "to": "component:o.OrderMapper", "kind": "calls"},
+        {"from": "component:o.OrderService", "to": "module:billing", "kind": "http", "details": ["POST http://billing/charges"]},
+        {"from": "component:o.OrderService", "to": "store:orders:mybatis", "kind": "write"},
+        {"from": "store:orders:mybatis", "to": "datastore:mysql:db/shop", "kind": "connects"},
+        {"from": "component:o.OrderService", "to": "module:common", "kind": "calls"},
+    ]
+    for m in ("gateway", "orders", "billing"):
+        edges.append({"from": f"module:{m}", "to": "infra:discovery:eureka", "kind": "registers"})
+        edges.append({"from": f"module:{m}", "to": "broker:rabbitmq", "kind": "connects"})
+    return {"graph": {"nodes": nodes, "edges": edges},
+            "modules": [{"path": "orders", "endpoint_count": 3}]}
+
+
+def test_layered_system_view_is_clean():
+    from app.services.architecture_view import layered_system_view
+    view = layered_system_view(_layered_model())
+    columns = {c["title"]: [n["label"] for n in c["nodes"]] for c in view["columns"]}
+
+    assert columns["Entry points"] == ["gateway"]
+    assert set(columns["Services"]) == {"orders", "billing", "common"}
+    assert columns["Data & infrastructure"] == ["mysql @ db"]          # mybatis folded into its service
+    platform = {p["label"]: p["used_by"] for p in view["platform"]}
+    assert len(platform["eureka"]) == 3 and "rabbitmq (message bus)" in platform
+
+    links = {(l["source"], l["target"]): l for l in view["links"]}
+    assert links[("module:orders", "module:billing")]["category"] == "call"
+    assert links[("module:orders", "module:common")]["category"] == "library"
+    assert links[("module:orders", "datastore:mysql:db/shop")]["category"] == "data"
+    assert not any("eureka" in l["target"] or "rabbitmq" in l["target"] for l in view["links"])
+    orders = next(n for c in view["columns"] for n in c["nodes"] if n["id"] == "module:orders")
+    assert "3 endpoints" in orders["meta"] and "mybatis" in orders["meta"]
+
+
+def test_layered_component_view_hides_configuration():
+    from app.services.architecture_view import layered_component_view
+    view = layered_component_view(_layered_model(), "orders")
+    columns = {c["title"]: [n["label"] for n in c["nodes"]] for c in view["columns"]}
+    assert columns["Entry points"] == ["OrderController"]
+    assert columns["Services"] == ["OrderService"]
+    assert columns["Repositories & clients"] == ["OrderMapper"]
+    assert set(columns["Systems"]) == {"billing", "mysql via mybatis"}
+    assert view["hidden"] == 1
+
+
+def test_architecture_page_uses_the_layered_diagram(two_versions):
+    page = two_versions.get("/ui/spring-shop/architecture").text
+    assert "/static/arch-diagram.js" in page and "d3.min.js" not in page
+    layered = two_versions.get("/api/architecture/layered", params={"repo": "spring-shop"}).json()
+    assert [c["title"] for c in layered["columns"]][-1] == "Data & infrastructure"
+    assert two_versions.get("/api/architecture/layered", params={"repo": "nope"}).status_code == 404

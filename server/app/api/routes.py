@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import LLM_ENABLED, TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
 from app.services import docs_store, ui_data
+from app.services.architecture_view import layered_component_view, layered_system_view
 from app.services.architecture_store import has_architecture, load_architecture, save_architecture
 from app.services.qa_plan_service import QAPlanService
 from app.services.doc_service import process_routes
@@ -420,7 +421,7 @@ def architecture_page(request: Request, repo: str):
             "repo": repo,
             "commit": document.get("commit"),
             "model": model,
-            "system_graph": build_architecture_graph(document, "system"),
+            "system_view": layered_system_view(model),
             "titles": docs_store.get_titles(repo),
             "nav": None,
             **_nav_context(repo)
@@ -698,6 +699,18 @@ def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = None, fo
 # ============================================================================
 # DEPENDENCY ANALYSIS ENDPOINTS
 # ============================================================================
+
+@router.get("/api/architecture/layered")
+def layered_architecture_api(repo: str, module: str = None):
+    """Column layout of the system (or of one module's components) for the architecture page."""
+    if not docs_store.is_safe_name(repo):
+        return JSONResponse({"error": "invalid repository"}, status_code=400)
+    model = (load_architecture(repo) or {}).get("architecture", {}).get("spring")
+    if model is None:
+        return JSONResponse({"error": f"No architecture stored for '{repo}'"}, status_code=404)
+    view = layered_component_view(model, module) if module is not None else layered_system_view(model)
+    return JSONResponse(view)
+
 
 @router.get("/api/dependency-graph")
 def get_dependency_graph_api(repo: str, view: str = "system", module: str = None):

@@ -2,7 +2,7 @@
 {% from "_ui/macros.html" import icon, method, stat, breadcrumbs %}
 {% block title %}Architecture · {{ repo }}{% endblock %}
 {% block page_class %}page-wide{% endblock %}
-{% block head %}<script src="/static/vendor/d3.min.js"></script><script src="/static/graph.js"></script>{% endblock %}
+{% block head %}<script src="/static/arch-diagram.js"></script>{% endblock %}
 {% block content %}
 {% set s = model.summary %}
 {% set documented = apis | map(attribute='name') | list %}
@@ -12,7 +12,7 @@
     <div>
         <div class="eyebrow">Architecture</div>
         <h1>{{ repo }} architecture</h1>
-        <p class="lead">{{ (s.architecture_style or '') | capitalize }} · scanned at <code>{{ commit }}</code>{% if s.spring_boot_apps %} · {{ s.spring_boot_apps | join(', ') }}{% endif %}</p>
+        <p class="lead">{{ (s.architecture_style or '') | capitalize }}{% if s.spring_boot_apps %} · {{ s.spring_boot_apps | length }} application{{ 's' if s.spring_boot_apps | length != 1 }}{% endif %} · scanned at <code>{{ commit }}</code></p>
     </div>
     <a class="btn btn-ghost btn-sm" href="/api/architecture?repo={{ repo }}">{{ icon('code') }} Raw JSON</a>
 </div>
@@ -46,16 +46,16 @@
 
 <!-- System map -->
 <section role="tabpanel" id="panel-system" aria-labelledby="tab-system">
-    <div class="row" style="justify-content:space-between;margin-bottom:10px">
-        <p class="small muted">Services and every system they talk to. Hover for details, scroll to zoom, select a module to see its components.</p>
-        <label class="small row" style="font-weight:400"><input type="checkbox" id="show-infra"> Show shared infrastructure</label>
-    </div>
-    <div id="system-graph" class="graph-box" role="img" aria-label="System map of {{ repo }}: modules, data stores, brokers and external services"></div>
-    <div class="legend">
-        {% for type, label in [('module', 'Module'), ('datastore', 'Datastore'), ('cache', 'Cache'), ('broker', 'Broker'), ('external_service', 'External service'), ('infrastructure', 'Infrastructure')] %}
-        <span><span class="legend-dot" data-color="{{ type }}"></span>{{ label }}</span>
+    <p class="small muted" style="margin-bottom:12px">Requests flow left to right: entry points, the services that handle them, then the data stores, brokers and external systems they reach.</p>
+    <div id="system-diagram"></div>
+    {% if system_view.platform %}
+    <div class="platform-strip" aria-label="Shared platform services">
+        <span class="label">Shared platform, used by every service and not drawn:</span>
+        {% for p in system_view.platform %}
+        <span class="platform-item" title="{{ p.kinds | join(', ') }}{% if p.url %} · {{ p.url }}{% endif %}">{{ p.label }} <span class="faint">{{ p.used_by | length }} service{{ 's' if p.used_by | length != 1 }}</span></span>
         {% endfor %}
     </div>
+    {% endif %}
 </section>
 
 <!-- Components -->
@@ -68,7 +68,8 @@
             {% endfor %}
         </select>
     </div>
-    <div id="component-graph" class="graph-box" role="img" aria-label="Components of the selected module and the systems they use"></div>
+    <div id="component-diagram"></div>
+    <p class="xs muted" id="component-note" style="margin-top:8px"></p>
     <div class="card" style="margin-top:16px">
         <div class="table-wrap">
         <table class="table" id="component-table">
@@ -301,10 +302,8 @@
 {% block scripts %}
 <script>
     const repo = {{ repo | tojson }};
-    const systemGraph = {{ system_graph | tojson }};
+    const systemView = {{ system_view | tojson }};
     const rendered = {};
-
-    document.querySelectorAll(".legend-dot[data-color]").forEach(dot => dot.style.background = window.graphColors[dot.dataset.color] || "#94a3b8");
 
     const tabs = [...document.querySelectorAll('[role="tab"]')];
     function showTab(key, focus) {
@@ -326,31 +325,35 @@
         });
     });
 
+    function openModule(path) {
+        const select = document.getElementById("component-module");
+        if (![...select.options].some(o => o.value === path)) return;
+        select.value = path;
+        rendered.components = true;
+        showTab("components", true);
+        loadComponents();
+    }
+
     function renderSystem() {
-        const showInfra = document.getElementById("show-infra").checked;
-        renderGraph(document.getElementById("system-graph"), systemGraph, {
-            height: 600,
-            nodeFilter: n => showInfra || n.type !== "infrastructure",
-            onNodeClick: d => {
-                if (d.type !== "module") return;
-                document.getElementById("component-module").value = d.path;
-                rendered.components = true;
-                showTab("components");
-                loadComponents();
-            },
-        });
+        ArchDiagram.render(document.getElementById("system-diagram"), systemView, {onOpenModule: openModule});
     }
 
     function loadComponents() {
         const module = document.getElementById("component-module").value;
+        const target = document.getElementById("component-diagram");
         document.querySelectorAll("#component-table tbody tr").forEach(row => row.hidden = row.dataset.module !== module);
-        fetch(`/api/dependency-graph?repo=${encodeURIComponent(repo)}&view=components&module=${encodeURIComponent(module)}`)
+        target.setAttribute("aria-busy", "true");
+        fetch(`/api/architecture/layered?repo=${encodeURIComponent(repo)}&module=${encodeURIComponent(module)}`)
             .then(r => r.json())
-            .then(data => renderGraph(document.getElementById("component-graph"), data, {height: 560}));
+            .then(view => {
+                ArchDiagram.render(target, view);
+                document.getElementById("component-note").textContent = view.hidden
+                    ? `${view.hidden} configuration class${view.hidden === 1 ? "" : "es"} not drawn; they are listed in the table below.` : "";
+            })
+            .finally(() => target.removeAttribute("aria-busy"));
     }
 
     document.getElementById("component-module").addEventListener("change", loadComponents);
-    document.getElementById("show-infra").addEventListener("change", renderSystem);
 
     const filter = document.getElementById("endpoint-filter");
     const rows = [...document.querySelectorAll(".endpoint-row")];
