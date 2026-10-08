@@ -1,10 +1,10 @@
 {% extends "_ui/base.html" %}
 {% from "_ui/macros.html" import icon, method, stat %}
-{% block title %}Home{% endblock %}
+{% block title %}Dashboard{% endblock %}
 {% block content %}
 <section class="hero" aria-labelledby="hero-title">
-    <h1 id="hero-title">API documentation that keeps up with your code</h1>
-    <p>Every commit is scanned for endpoints, contracts and dependencies. Browse the docs, see what changed and what it affects.</p>
+    <h1 id="hero-title">Dashboard</h1>
+    <p>Your documented repositories and the latest API changes.</p>
     <form class="hero-search" action="/ui/search" method="get" role="search">
         <label class="sr-only" for="ask">Ask about your APIs</label>
         <input id="ask" type="search" name="q" placeholder="Ask anything, e.g. “which endpoints write to the orders table?”" autocomplete="off">

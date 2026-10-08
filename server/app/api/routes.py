@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from app.config import TEMPLATES_DIR
+from app.config import LLM_ENABLED, TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
 from app.services import docs_store, ui_data
 from app.services.architecture_store import has_architecture, load_architecture, save_architecture
@@ -136,9 +136,23 @@ def get_architecture(repo: str, commit: str = None):
 
 
 @router.get("/", response_class=HTMLResponse)
+def landing(request: Request):
+    """Product landing page."""
+    repos = docs_store.list_repos()
+    return templates.TemplateResponse(
+        request,
+        "landing.html",
+        {
+            "nav": "landing",
+            "repo_count": len(repos),
+            "api_count": sum(len(docs_store.list_apis(repo)) for repo in repos),
+        }
+    )
+
+
 @router.get("/ui", response_class=HTMLResponse)
 def ui_home(request: Request):
-    """Home: search, repositories and recent changes."""
+    """Dashboard: search, repositories and recent changes."""
     repos = docs_store.list_repos()
     items = {repo: ui_data.api_items(repo) for repo in repos}
     summaries = [ui_data.repo_summary(repo, items[repo]) for repo in repos]
@@ -149,7 +163,7 @@ def ui_home(request: Request):
         request,
         "index.html",
         {
-            "nav": "home",
+            "nav": "dashboard",
             "repos": summaries,
             "totals": {
                 "repos": len(summaries),
@@ -561,7 +575,8 @@ async def search_apis(request: Request):
 
 
 @router.get("/ui/{repo}/{api}/qa-plan", response_class=HTMLResponse)
-def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int = None, force: bool = False):
+def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int = None,
+                 force: bool = False, generate: bool = False):
     """
     Generate and display a comprehensive QA plan for an API.
     QA plans are cached to avoid regenerating on every page load.
@@ -583,14 +598,31 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
     # Check if QA plan is cached (unless force=True to bypass cache)
     cached_plan = None if force else qa_plan_service.get_qa_plan(repo, api, v2)
     
+    if v2 not in versions:
+        return _not_found(request, f"Version v{v2} of this API does not exist.", f"/ui/{repo}/{api}/history")
+
+    if not cached_plan and not generate:
+        # Generating can take a while with an LLM: answer at once with a progress
+        # page that builds the plan through /api/qa-plan and then reloads.
+        return templates.TemplateResponse(
+            request,
+            "qa_plan_loading.html",
+            {
+                "repo": repo,
+                "api": api,
+                "v1": v1,
+                "v2": v2,
+                "force": force,
+                "llm_enabled": LLM_ENABLED,
+                **_nav_context(repo, api, "qa", v2)
+            }
+        )
+
     if cached_plan:
         qa_plan = cached_plan.get("plan", {})
         plan_generated_at = cached_plan.get("generated_at")
     else:
         doc_v2 = docs_store.read_version(repo, api, v2)
-
-        if doc_v2 is None:
-            return _not_found(request, f"Version v{v2} of this API does not exist.", f"/ui/{repo}/{api}/history")
 
         # v1 doc enables regression testing
         doc_v1 = docs_store.read_version(repo, api, v1) if v1 else None
@@ -800,6 +832,7 @@ def dependencies_view(request: Request, repo: str, api: str, v1: int = None, v2:
             "v1": v1,
             "v2": v2,
             "impact_data": impact_data,
+            "impact_view": ui_data.impact_view(impact_data),
             **_nav_context(repo, api, "dependencies", v2)
         }
     )

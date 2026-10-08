@@ -172,3 +172,87 @@ def recent_changes(repos: List[str], limit: int = 8, items_by_repo: Optional[Dic
             })
     changes.sort(key=lambda c: c["updated"] or 0, reverse=True)
     return changes[:limit]
+
+
+# ---------- impact page ----------
+
+_CHANGE_AREAS = (
+    ("ENDPOINT", "Endpoint"), ("REQUEST", "Request body"), ("RESPONSE", "Response"), ("PARAM", "Parameters"),
+    ("VALIDATION", "Validation"), ("SECURITY", "Security"), ("ERROR_STATUS", "Status codes"), ("SUCCESS_STATUS", "Status codes"),
+)
+_SEVERITY_ORDER = {"breaking": 0, "minor": 1, "additive": 2}
+_LEVEL_TEXT = {
+    "high": ("High impact", "danger", "Clients and other parts of the system are likely to break without changes."),
+    "medium": ("Medium impact", "warn", "The contract changed in a breaking way, but no callers were found in the scanned code."),
+    "low": ("Low impact", "ok", "Changes are backwards compatible for existing clients."),
+    "none": ("No impact", "ok", "Nothing in the API contract or its dependencies changed."),
+}
+_GROUP_LABELS = {"databases": "Databases", "caches": "Caches", "messaging": "Messaging",
+                 "external_apis": "External services", "other": "Other"}
+
+
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
+def change_area(change_type: str) -> str:
+    for prefix, label in _CHANGE_AREAS:
+        if (change_type or "").startswith(prefix):
+            return label
+    return "Contract"
+
+
+def impact_view(impact: dict) -> dict:
+    """Plain-language pieces of an impact analysis for the dependencies page."""
+    bc = impact.get("breaking_changes") or {}
+    changes = sorted(bc.get("changes") or [], key=lambda c: _SEVERITY_ORDER.get(c.get("severity"), 3))
+    level = bc.get("impact_level") or "none"
+    title, tone, explanation = _LEVEL_TEXT.get(level, _LEVEL_TEXT["none"])
+
+    affected = []
+    for c in impact.get("consumers") or []:
+        affected.append({"name": c.get("caller"), "module": c.get("caller_module"),
+                         "how": "Routes requests to this API" if c.get("kind") == "gateway_route" else "Calls this API",
+                         "detail": c.get("detail"), "kind": "caller"})
+    sharing: Dict[str, List[str]] = {}
+    for sr in impact.get("shared_resources") or []:
+        for other in sr.get("also_used_by") or []:
+            sharing.setdefault(other, []).append(f"{sr.get('kind')} {sr.get('name')}")
+    for other, resources in sharing.items():
+        name, _, handler = other.partition(" (")
+        affected.append({"name": name, "module": handler.rstrip(")"), "how": "Shares " + ", ".join(resources),
+                         "detail": "", "kind": "shares"})
+
+    breaking = sum(1 for c in changes if c.get("severity") == "breaking")
+    facts = []
+    if changes:
+        facts.append(_plural(breaking, "breaking change") + (f" of {len(changes)}" if breaking != len(changes) else ""))
+    callers = sum(1 for a in affected if a["kind"] == "caller")
+    if callers:
+        facts.append(_plural(callers, "caller") + " in the scanned code")
+    sharers = len(sharing)
+    if sharers:
+        facts.append(_plural(sharers, "endpoint") + " sharing data")
+    delta = impact.get("downstream_changes") or {}
+    new_deps = sum(len(d.get("added", [])) for d in delta.values())
+    removed_deps = sum(len(d.get("removed", [])) for d in delta.values())
+    if new_deps or removed_deps:
+        facts.append(", ".join(x for x in (f"{new_deps} new" if new_deps else "", f"{removed_deps} removed" if removed_deps else "") if x)
+                     + " dependenc" + ("y" if new_deps + removed_deps == 1 else "ies"))
+
+    dependencies = [{"group": g, "label": _GROUP_LABELS.get(g, g), "entries": items}
+                    for g, items in (impact.get("dependencies") or {}).items()]
+    if not dependencies:
+        # docs-only / older data: plain strings
+        dependencies = [{"group": g, "label": _GROUP_LABELS.get(g, g),
+                         "entries": [{"operation": "", "name": s, "technology": "", "status": "same"} for s in items]}
+                        for g, items in (impact.get("downstream") or {}).items() if items]
+
+    return {
+        "level": level, "title": title, "tone": tone, "explanation": explanation, "facts": facts,
+        "changes": [{**c, "area": change_area(c.get("type"))} for c in changes],
+        "breaking": breaking,
+        "affected": affected,
+        "dependencies": dependencies,
+        "dependency_count": sum(len([i for i in d["entries"] if i["status"] != "removed"]) for d in dependencies),
+    }

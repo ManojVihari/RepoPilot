@@ -24,7 +24,7 @@
             <span class="brand-mark" aria-hidden="true">R</span><span>RepoPilot</span>
         </a>
         <nav class="mainnav" aria-label="Main">
-            <a href="/" {% if nav == 'home' %}aria-current="page"{% endif %}>{{ icon('home') }}<span>Home</span></a>
+            <a href="/ui" {% if nav == 'dashboard' %}aria-current="page"{% endif %}>{{ icon('home') }}<span>Dashboard</span></a>
             <a href="/ui/all" {% if nav == 'apis' %}aria-current="page"{% endif %}>{{ icon('list') }}<span>APIs</span></a>
             <a href="/ui/search" {% if nav == 'search' %}aria-current="page"{% endif %}>{{ icon('sparkle') }}<span>Ask</span></a>
         </nav>

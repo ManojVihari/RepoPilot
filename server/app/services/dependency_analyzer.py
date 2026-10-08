@@ -426,31 +426,53 @@ def contract_changes(old: dict, new: dict) -> List[dict]:
     return sorted(changes, key=lambda c: rank.get(c["severity"], 3))
 
 
+def _downstream_entries(route: dict) -> Dict[str, Dict[str, dict]]:
+    """What an endpoint reaches, per group: display key -> structured entry."""
+    integrations = (route or {}).get("integrations") or {}
+    groups: Dict[str, Dict[str, dict]] = {g: {} for g in ("databases", "caches", "messaging", "external_apis", "other")}
+
+    def put(group, key, operation, name, technology):
+        groups[group][key] = {"operation": (operation or "").lower(), "name": name, "technology": technology or ""}
+
+    for f in integrations.get("databases", []):
+        for t in (f.get("table") or [f.get("entity") or "?"]):
+            put("databases", f"{f.get('operation')} {t} ({f.get('technology')})", f.get("operation"), t, f.get("technology"))
+    for f in integrations.get("caches", []):
+        name = ", ".join(f.get("cache_names") or []) or f.get("key") or f.get("technology")
+        put("caches", f"{f.get('operation')} {name} ({f.get('technology')})", f.get("operation"), name, f.get("technology"))
+    for f in integrations.get("messaging", []):
+        put("messaging", f"{f.get('direction')} {f.get('destination')} ({f.get('technology')})",
+            f.get("direction"), str(f.get("destination")), f.get("technology"))
+    for f in integrations.get("external_apis", []):
+        target = f.get("target_service") or f.get("host")
+        key = f"{f.get('http_method') or ''} {f.get('url') or ''}".strip() + (f" → {target}" if target else "")
+        put("external_apis", key, f.get("http_method"), target or f.get("url") or "unresolved",
+            f.get("url") if target else "")
+    for group in ("events", "storage", "email", "search"):
+        for f in integrations.get(group, []):
+            name = f.get("event_type") or f.get("bucket") or f.get("technology")
+            put("other", f"{group}: {name}", group.rstrip("s") if group == "events" else group, name, f.get("technology") if name != f.get("technology") else "")
+    return groups
+
+
 def downstream(route: dict) -> Dict[str, List[str]]:
     """Compact view of what an endpoint reaches: tables, caches, topics, external calls."""
-    integrations = (route or {}).get("integrations") or {}
+    return {group: sorted(entries) for group, entries in _downstream_entries(route).items()}
 
-    tables = sorted({
-        f"{f.get('operation')} {t} ({f.get('technology')})"
-        for f in integrations.get("databases", []) for t in (f.get("table") or [f.get("entity") or "?"])
-    })
-    caches = sorted({
-        f"{f.get('operation')} {', '.join(f.get('cache_names') or []) or f.get('key') or f.get('technology')} ({f.get('technology')})"
-        for f in integrations.get("caches", [])
-    })
-    messaging = sorted({
-        f"{f.get('direction')} {f.get('destination')} ({f.get('technology')})" for f in integrations.get("messaging", [])
-    })
-    external = sorted({
-        f"{f.get('http_method') or ''} {f.get('url') or ''}".strip() + (f" → {f.get('target_service') or f.get('host')}" if (f.get("target_service") or f.get("host")) else "")
-        for f in integrations.get("external_apis", [])
-    })
-    other = sorted({
-        f"{group}: {f.get('event_type') or f.get('bucket') or f.get('technology')}"
-        for group in ("events", "storage", "email", "search") for f in integrations.get(group, [])
-    })
 
-    return {"databases": tables, "caches": caches, "messaging": messaging, "external_apis": external, "other": other}
+def dependency_items(old: Optional[dict], new: Optional[dict]) -> Dict[str, List[dict]]:
+    """Structured downstream dependencies of the new version, marked new/removed against the old one."""
+    after = _downstream_entries(new)
+    before = _downstream_entries(old) if old else None
+    out = {}
+    for group, entries in after.items():
+        items = [{**e, "status": "new" if before is not None and key not in before[group] else "same"}
+                 for key, e in sorted(entries.items())]
+        if before is not None:
+            items += [{**e, "status": "removed"} for key, e in sorted(before[group].items()) if key not in entries]
+        if items:
+            out[group] = items
+    return out
 
 
 def downstream_changes(old: Optional[dict], new: dict) -> Dict[str, Dict[str, List[str]]]:
@@ -604,6 +626,7 @@ def analyze_endpoint_impact(repo: str, api: str, v1: Optional[int], v2: int,
             "messaging": endpoint.get("publishes") or [], "external_apis": endpoint.get("calls_external") or [], "other": [],
         },
         "downstream_changes": delta,
+        "dependencies": dependency_items(v1_route, v2_route) if v2_route else {},
         "affected_apis": affected,
         "dependency_graph": _impact_graph(endpoint, v2_route, consumer_list, shared, model),
         "recommendations": _recommendations(changes, consumer_list, shared, delta),

@@ -1,0 +1,131 @@
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon %}
+{% block title %}RepoPilot · API docs that keep up with your code{% endblock %}
+{% block page_class %}landing{% endblock %}
+{% block content %}
+
+<section class="lp-hero" aria-labelledby="lp-title">
+    <div class="lp-hero-text">
+        <p class="eyebrow">Living API documentation</p>
+        <h1 id="lp-title">API docs that keep up with your code</h1>
+        <p class="lp-lead">RepoPilot reads your repository on every commit, documents each endpoint, records how its contract changes, and shows what a change will break before it ships.</p>
+        <div class="lp-cta">
+            <a class="btn btn-primary btn-lg" href="/ui">{% if api_count %}Open dashboard{% else %}Get started{% endif %} {{ icon('arrow-right') }}</a>
+            <a class="btn btn-lg" href="#how">How it works</a>
+        </div>
+        {% if api_count %}
+        <p class="small muted" style="margin-top:14px">Documenting {{ api_count }} API{{ 's' if api_count != 1 }} across {{ repo_count }} repositor{{ 'ies' if repo_count != 1 else 'y' }}.</p>
+        {% endif %}
+    </div>
+
+    {# A small, static preview of what the product shows. Decorative. #}
+    <div class="lp-preview" aria-hidden="true">
+        <div class="lp-window">
+            <div class="lp-window-bar"><span></span><span></span><span></span></div>
+            <div class="lp-window-body">
+                <div class="row" style="gap:8px"><span class="method method-POST">POST</span><span class="mono small">/api/orders</span><span class="badge">v2</span></div>
+                <div class="lp-preview-title">Places a new order</div>
+                <div class="verdict verdict-danger lp-mini-verdict">
+                    <div class="verdict-icon">{{ icon('alert') }}</div>
+                    <div><strong>High impact</strong><div class="small muted">3 breaking changes · 2 endpoints sharing data</div></div>
+                </div>
+                <ul class="lp-mini-changes">
+                    <li><span class="sev sev-breaking">Breaking</span><span><code>lines.warehouse</code> is now required</span></li>
+                    <li><span class="sev sev-breaking">Breaking</span><span><code>status</code>: String → OrderStatus</span></li>
+                    <li><span class="sev sev-additive">Additive</span><span><code>trackingUrl</code> added to the response</span></li>
+                </ul>
+                <div class="lp-mini-deps">
+                    <span class="dep"><span class="dep-op">write</span><span class="mono">orders</span></span>
+                    <span class="dep"><span class="dep-op">publish</span><span class="mono">orders.created</span></span>
+                    <span class="dep"><span class="dep-op">post</span><span class="mono">payments</span><span class="dep-status dep-new">New</span></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section class="lp-section" aria-labelledby="features-title">
+    <h2 id="features-title" class="lp-h2">Everything about an API, in one place</h2>
+    <p class="lp-sub">From what an endpoint does to what it touches, each page answers one question.</p>
+    <div class="lp-features">
+        {% for f in [
+            ('book', 'Documentation that writes itself', 'Every endpoint gets a readable page: purpose, request, response, errors and security, with clear titles generated from what it actually does.'),
+            ('history', 'Versions and diffs', 'A new version is recorded only when the contract changes. Compare any two versions side by side with only the changed lines shown.'),
+            ('alert', 'Change impact before release', 'See which changes are breaking, who calls the API, which endpoints share its tables, caches and topics, and what to do about it.'),
+            ('arch', 'Architecture map', 'Services, modules, databases, caches, message brokers and external APIs, discovered from source and drawn as a navigable map.'),
+            ('beaker', 'QA plans', 'Test plans for each version, with regression cases for what changed, coverage by area and a printable checklist.'),
+            ('sparkle', 'Ask your docs', 'Ask questions in plain language, such as "which endpoints write to the orders table?", and get answers with links to the source pages.'),
+        ] %}
+        <article class="lp-feature">
+            <div class="lp-feature-icon">{{ icon(f[0]) }}</div>
+            <h3>{{ f[1] }}</h3>
+            <p>{{ f[2] }}</p>
+        </article>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="lp-section" id="how" aria-labelledby="how-title" tabindex="-1">
+    <h2 id="how-title" class="lp-h2">How it works</h2>
+    <p class="lp-sub">Three steps, no changes to your application.</p>
+    <ol class="lp-steps">
+        <li>
+            <span class="lp-step-num" aria-hidden="true">1</span>
+            <h3>Scan</h3>
+            <p>The scanner parses your code with tree-sitter in CI or locally. It doesn't need a build, a running app or annotations. It finds endpoints, request and response models, validation, security and every database, cache, queue and HTTP call.</p>
+        </li>
+        <li>
+            <span class="lp-step-num" aria-hidden="true">2</span>
+            <h3>Document</h3>
+            <p>The server turns the scan into documentation with your local Ollama model, versions it by contract, and links it to the architecture. Without a model it still builds docs from the scanned facts.</p>
+        </li>
+        <li>
+            <span class="lp-step-num" aria-hidden="true">3</span>
+            <h3>Review</h3>
+            <p>Browse the dashboard, compare versions, check the impact of a change and hand QA a plan, all before the change is merged.</p>
+        </li>
+    </ol>
+</section>
+
+<section class="lp-section lp-split" aria-labelledby="stack-title">
+    <div>
+        <h2 id="stack-title" class="lp-h2">Works with your stack</h2>
+        <p class="lp-sub" style="margin-bottom:16px">Deep support for Java and Spring, including multi-module and microservice repositories.</p>
+        <ul class="chips" aria-label="Supported technologies">
+            {% for t in ['Spring MVC', 'Spring Cloud Gateway', 'Feign', 'RestTemplate / WebClient', 'JPA / JDBC', 'MyBatis', 'Redis', 'Spring Cache', 'Kafka', 'RabbitMQ', 'SQS', 'Spring Security', 'Maven', 'Gradle', 'FastAPI'] %}
+            <li class="chip">{{ t }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    <div class="lp-private">
+        <div class="lp-feature-icon">{{ icon('lock') }}</div>
+        <div>
+            <h3>Private by default</h3>
+            <p class="muted">Your code is analysed on your own machines and documentation is written by a local model. Nothing is sent to a third-party service.</p>
+        </div>
+    </div>
+</section>
+
+<section class="lp-section" aria-labelledby="start-title">
+    <h2 id="start-title" class="lp-h2">Try it on a repository</h2>
+    <div class="lp-start">
+        <div>
+            <p class="small muted">Document a whole local repository</p>
+            <pre><code>python scripts/document_local_repo.py ~/code/my-service</code></pre>
+        </div>
+        <div>
+            <p class="small muted">Start the server and open the dashboard</p>
+            <pre><code>cd server &amp;&amp; python run.py</code></pre>
+        </div>
+        <div>
+            <p class="small muted">Or scan every commit in CI</p>
+            <pre><code>docai-scan --repo . --commit "$GIT_COMMIT" --server https://repopilot.internal</code></pre>
+        </div>
+    </div>
+    <div class="lp-cta" style="margin-top:28px">
+        <a class="btn btn-primary btn-lg" href="/ui">Open dashboard {{ icon('arrow-right') }}</a>
+    </div>
+</section>
+
+<footer class="lp-footer small muted">RepoPilot: API documentation, change impact and QA plans from your source code.</footer>
+{% endblock %}

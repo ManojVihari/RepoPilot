@@ -7,7 +7,7 @@
 {% set s = model.summary %}
 {% set documented = apis | map(attribute='name') | list %}
 
-{{ breadcrumbs([('Home', '/'), (repo, '/ui/' ~ repo), ('Architecture', None)]) }}
+{{ breadcrumbs([('Dashboard', '/ui'), (repo, '/ui/' ~ repo), ('Architecture', None)]) }}
 <div class="page-header">
     <div>
         <div class="eyebrow">Architecture</div>

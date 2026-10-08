@@ -1,3 +1,4 @@
+import html
 import pytest
 from fastapi.testclient import TestClient
 
@@ -251,8 +252,11 @@ def test_architecture_and_dependency_pages_render(two_versions):
 
     deps = two_versions.get("/ui/spring-shop/OrderController.create/dependencies", params={"v1": 1, "v2": 2})
     assert deps.status_code == 200
-    assert "Based on scanner data" in deps.text
-    assert "REQUEST_FIELD_ADDED" in deps.text
+    assert "Based on the scanned source code" in deps.text
+    assert "High impact" in deps.text or "Medium impact" in deps.text
+    assert "Request body" in deps.text          # change area instead of the raw type code
+    assert "REQUEST_FIELD_ADDED" not in deps.text.split("<script")[0]
+    assert "What this API uses" in deps.text
 
     assert 'href="/ui/spring-shop/architecture"' in two_versions.get("/ui/spring-shop/OrderController.create").text
     assert two_versions.get("/ui/unknown-repo/architecture").status_code == 404
@@ -439,8 +443,15 @@ def test_api_pages_mark_the_current_tab(two_versions):
     assert "Changes from v1" in docs   # quick link to the diff of the latest version
 
 
+def test_landing_page_describes_the_product(two_versions):
+    page = two_versions.get("/").text
+    assert "API docs that keep up with your code" in page
+    assert 'href="/ui"' in page and 'id="how"' in page
+    assert "Documenting 4 APIs across 1 repository" in page
+
+
 def test_home_lists_repositories_and_recent_changes(two_versions):
-    home = two_versions.get("/").text
+    home = two_versions.get("/ui").text
     assert 'href="/ui/spring-shop"' in home
     assert "Recently documented" in home
     assert 'href="/ui/spring-shop/OrderController.create/diff?v1=1&v2=2"' in home
@@ -457,3 +468,30 @@ def test_unknown_pages_render_a_friendly_404(client, docs_dir):
         page = client.get(url)
         assert page.status_code == 404, url
         assert "Go back" in page.text, url
+
+
+def test_qa_plan_shows_progress_then_the_generated_plan(two_versions, monkeypatch):
+    from app.api import routes as r
+    calls = []
+    plan = {"coverage": {"overall_score": 81}, "test_cases": {}, "is_template": True}
+    monkeypatch.setattr(r, "generate_full_qa_plan", lambda *a: calls.append(a) or plan)
+    store = {}
+    monkeypatch.setattr(r.qa_plan_service, "save_qa_plan", lambda repo, api, v, p: store.update({v: {"plan": p}}))
+    monkeypatch.setattr(r.qa_plan_service, "get_qa_plan", lambda repo, api, v: store.get(v))
+    url = "/ui/spring-shop/OrderController.create/qa-plan"
+
+    # no cached plan: answer at once with a progress page, nothing generated yet
+    loading = two_versions.get(url).text
+    assert 'role="status"' in loading and "Generating the test plan for v2" in loading
+    assert 'data-api-url="/api/qa-plan?repo=spring-shop&api=OrderController.create&v1=1&v2=2"' in html.unescape(loading)
+    assert not calls
+
+    # the page's script calls the JSON endpoint, then reloads the cached plan
+    assert two_versions.get("/api/qa-plan", params={"repo": "spring-shop", "api": "OrderController.create", "v1": 1, "v2": 2}).json() == plan
+    assert len(calls) == 1
+    page = two_versions.get(url).text
+    assert "81%" in page and "Generating the test plan" not in page
+
+    # regenerate goes through the progress page again, with force
+    assert "Regenerating the test plan" in two_versions.get(url, params={"force": "true"}).text
+    assert len(calls) == 1

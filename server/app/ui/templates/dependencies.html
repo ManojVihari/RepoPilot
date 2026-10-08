@@ -1,148 +1,168 @@
 {% extends "_ui/api_layout.html" %}
-{% from "_ui/macros.html" import icon, stat, callout %}
+{% from "_ui/macros.html" import icon %}
 {% block title %}Dependencies · {{ api_title }}{% endblock %}
-{% block head %}<script src="/static/vendor/d3.min.js"></script><script src="/static/graph.js"></script>{% endblock %}
+{% block head %}<script src="/static/vendor/d3.min.js" defer></script><script src="/static/graph.js" defer></script>{% endblock %}
 {% block content %}
 {% set bc = impact_data.breaking_changes %}
 {% set scanner = impact_data.source == 'scanner' %}
-{% set level = bc.impact_level or 'none' %}
+{% set view = impact_view %}
+{% set group_icons = {'databases': 'database', 'caches': 'layers', 'messaging': 'send', 'external_apis': 'globe', 'other': 'box'} %}
 
 <div class="page-header" style="margin-bottom:16px">
     <div>
         <h2 style="font-size:1.2rem">{% if v1 %}Impact of v{{ v1 }} → v{{ v2 }}{% else %}Dependencies of v{{ v2 }}{% endif %}</h2>
         <p class="small muted" style="margin-top:4px">
-            {% if scanner %}{{ icon('check-circle') }} Based on scanner data{% if v1 and not impact_data.has_route_data.v1 %} (v{{ v1 }} predates structured data){% endif %}
-            {% else %}{{ icon('alert') }} Estimated from documentation text — scan with RepoPilot 2.0+ for exact results{% endif %}
+            {% if scanner %}Based on the scanned source code{% if v1 and not impact_data.has_route_data.v1 %} (v{{ v1 }} predates structured data){% endif %}
+            {% else %}Estimated from the documentation text — re-scan with RepoPilot 2.0+ for exact results{% endif %}
         </p>
     </div>
     {% if has_architecture %}<a class="btn btn-sm btn-ghost" href="/ui/{{ repo }}/architecture">{{ icon('arch') }} Architecture</a>{% endif %}
 </div>
 
-<div class="grid grid-stats" style="margin-bottom:24px">
-    <div class="card stat">
-        <div class="stat-label">Impact</div>
-        <div class="stat-value"><span class="badge {{ {'high': 'badge-danger', 'medium': 'badge-warn', 'low': 'badge-ok'}.get(level, '') }}" style="font-size:.95rem;padding:3px 12px">{{ level | upper }}</span></div>
+{# 1. Verdict #}
+<section class="verdict verdict-{{ view.tone }}" aria-labelledby="verdict-title">
+    <div class="verdict-icon">{{ icon('alert' if view.tone in ('danger', 'warn') else 'check-circle') }}</div>
+    <div>
+        <h3 id="verdict-title">{{ view.title }}</h3>
+        <p>{{ view.explanation }}</p>
+        {% if view.facts %}<ul class="verdict-facts">{% for f in view.facts %}<li>{{ f }}</li>{% endfor %}</ul>{% endif %}
     </div>
-    {% if scanner %}
-    {{ stat('Breaking changes', bc.breaking_count, 'of ' ~ (bc.changes | length) ~ ' changes') }}
-    {{ stat('Calling services', impact_data.consumers | length) }}
-    {% else %}
-    {{ stat('Removed endpoints', bc.removed_endpoints | length) }}
-    {{ stat('Added endpoints', bc.added_endpoints | length) }}
-    {% endif %}
-    {{ stat('Affected APIs', impact_data.affected_apis | length) }}
-</div>
+</section>
 
 <div class="stack-lg">
-{% if scanner %}
-    {% if impact_data.change_reasons and v1 %}
-    <p class="small muted"><strong style="color:var(--text)">Why this version changed:</strong>
-        {{ impact_data.change_reasons[:8] | join(' · ') }}{% if impact_data.change_reasons | length > 8 %} · and {{ impact_data.change_reasons | length - 8 }} more{% endif %}</p>
-    {% endif %}
+    {# 2. What changed + what to do #}
+    <div class="impact-grid">
+        <section class="card" aria-labelledby="changes-title">
+            <div class="card-header"><h3 id="changes-title">What changed</h3>{% if view.changes %}<span class="xs muted">{{ view.changes | length }}</span>{% endif %}</div>
+            {% if view.changes %}
+            <ul class="change-list">
+                {% for c in view.changes %}
+                <li>
+                    <span class="sev sev-{{ c.severity }}">{{ c.severity | capitalize }}</span>
+                    <div class="break">
+                        <div>{{ c.detail | inline_code }}</div>
+                        <div class="xs faint">{{ c.area }}</div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% elif not scanner and (bc.removed_endpoints or bc.added_endpoints) %}
+            <ul class="change-list">
+                {% for e in bc.removed_endpoints %}<li><span class="sev sev-breaking">Removed</span><code>{{ e }}</code></li>{% endfor %}
+                {% for e in bc.added_endpoints %}<li><span class="sev sev-additive">Added</span><code>{{ e }}</code></li>{% endfor %}
+            </ul>
+            {% else %}
+            <p class="card-body small muted">{% if v1 %}The API contract is the same in both versions.{% else %}This is the first documented version, so there is nothing to compare yet.{% endif %}</p>
+            {% endif %}
+            {% if impact_data.change_reasons and v1 %}
+            <details class="card-footer-details">
+                <summary>Code changes behind this version ({{ impact_data.change_reasons | length }})</summary>
+                <ul class="small muted">{% for r in impact_data.change_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+            </details>
+            {% endif %}
+        </section>
 
-    <section class="card" aria-labelledby="changes-title">
-        <div class="card-header"><h3 id="changes-title">Contract changes</h3></div>
-        {% if bc.changes %}
-        <ul class="list">
-            {% for c in bc.changes %}
-            <li class="row" style="align-items:flex-start;flex-wrap:nowrap">
-                <span class="badge {{ {'breaking': 'badge-danger', 'minor': 'badge-warn', 'additive': 'badge-ok'}.get(c.severity, '') }}" style="min-width:76px;justify-content:center">{{ c.severity }}</span>
-                <div class="break"><div>{{ c.detail|inline_code }}</div><code class="xs faint">{{ c.type }}</code></div>
+        <section class="card" aria-labelledby="todo-title">
+            <div class="card-header"><h3 id="todo-title">What to do</h3></div>
+            <ol class="todo-list">
+                {% for rec in impact_data.recommendations %}<li>{{ rec }}</li>{% endfor %}
+            </ol>
+        </section>
+    </div>
+
+    {# 3. Who could be affected #}
+    {% if scanner %}
+    <section class="card" aria-labelledby="affected-title">
+        <div class="card-header"><h3 id="affected-title">Who could be affected</h3>{% if view.affected %}<span class="xs muted">{{ view.affected | length }}</span>{% endif %}</div>
+        {% if view.affected %}
+        <ul class="affected-list">
+            {% for a in view.affected %}
+            <li>
+                <span class="affected-icon" aria-hidden="true">{{ icon('arrow-right' if a.kind == 'caller' else 'database') }}</span>
+                <div class="break">
+                    <div><strong>{{ a.name }}</strong>{% if a.module and a.module != a.name %} <span class="xs faint mono">{{ a.module }}</span>{% endif %}</div>
+                    <div class="small muted">{{ a.how }}</div>
+                    {% if a.detail %}<div class="xs faint">{{ a.detail | inline_code }}</div>{% endif %}
+                </div>
             </li>
             {% endfor %}
         </ul>
         {% else %}
-        <p class="card-body muted">{% if v1 %}No contract changes between these versions.{% else %}First documented version — nothing to compare yet.{% endif %}</p>
+        <p class="card-body small muted">No other services or endpoints in the scanned code call this API or share its data. External clients (browsers, mobile apps, partners) are not visible to code scanning.</p>
         {% endif %}
     </section>
-
-    <div class="grid grid-2">
-        <section class="card" aria-labelledby="callers-title">
-            <div class="card-header"><h3 id="callers-title">Who calls this API</h3></div>
-            {% if impact_data.consumers %}
-            <ul class="list">
-                {% for c in impact_data.consumers %}
-                <li><strong>{{ c.caller }}</strong>{% if c.caller_module and c.caller_module != c.caller %} <span class="muted">({{ c.caller_module }})</span>{% endif %}
-                    <span class="badge">{{ 'gateway route' if c.kind == 'gateway_route' else 'service call' }}</span>
-                    <div class="xs faint mono">{{ c.detail|inline_code }}</div></li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <p class="card-body small muted">No calls from other services or gateways in the scanned code. External clients are not visible to static analysis.</p>
-            {% endif %}
-        </section>
-
-        <section class="card" aria-labelledby="shared-title">
-            <div class="card-header"><h3 id="shared-title">Shared resources</h3></div>
-            {% if impact_data.shared_resources %}
-            <ul class="list">
-                {% for sr in impact_data.shared_resources %}
-                <li><span class="badge">{{ sr.kind }}</span> <code>{{ sr.name }}</code>
-                    <div class="xs muted" style="margin-top:4px">Also used by {{ sr.also_used_by[:5] | join('; ') }}{% if sr.also_used_by | length > 5 %} and {{ sr.also_used_by | length - 5 }} more{% endif %}</div></li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <p class="card-body small muted">No tables, caches or topics shared with other endpoints.</p>
-            {% endif %}
-        </section>
-    </div>
-
-    <section class="card" aria-labelledby="down-title">
-        <div class="card-header"><h3 id="down-title">What this API depends on</h3>{% if impact_data.downstream_changes %}<span class="xs muted"><span style="color:var(--ok);font-weight:700">+</span> new in v{{ v2 }} · <s>removed</s></span>{% endif %}</div>
-        <div class="card-body grid grid-2" style="gap:20px">
-            {% set any_down = namespace(v=false) %}
-            {% for group, label in [('databases', 'Databases'), ('caches', 'Caches'), ('messaging', 'Messaging'), ('external_apis', 'External APIs'), ('other', 'Other')] %}
-            {% set items = impact_data.downstream[group] %}
-            {% set delta = impact_data.downstream_changes.get(group, {}) %}
-            {% if items or delta %}{% set any_down.v = true %}
-            <div>
-                <h4 class="small" style="margin-bottom:6px">{{ label }}</h4>
-                <ul class="list small">
-                    {% for item in items %}<li style="padding:3px 0;border:0" class="mono xs">{% if item in delta.get('added', []) %}<span style="color:var(--ok);font-weight:700" aria-label="new">+ </span>{% endif %}{{ item }}</li>{% endfor %}
-                    {% for item in delta.get('removed', []) %}<li style="padding:3px 0;border:0" class="mono xs muted"><s aria-label="removed">{{ item }}</s></li>{% endfor %}
-                </ul>
-            </div>
-            {% endif %}
-            {% endfor %}
-            {% if not any_down.v %}<p class="small muted">No databases, caches, messaging or external calls detected.</p>{% endif %}
-        </div>
-    </section>
-{% else %}
-    <section class="card" aria-labelledby="doc-changes-title">
-        <div class="card-header"><h3 id="doc-changes-title">Endpoint changes</h3></div>
-        <ul class="list">
-            {% for e in bc.removed_endpoints %}<li><span class="badge badge-danger">removed</span> <code>{{ e }}</code></li>{% endfor %}
-            {% for e in bc.added_endpoints %}<li><span class="badge badge-ok">added</span> <code>{{ e }}</code></li>{% endfor %}
-            {% if not bc.removed_endpoints and not bc.added_endpoints %}<li class="muted">No endpoint changes detected in the documentation text.</li>{% endif %}
-        </ul>
-    </section>
-{% endif %}
-
-    <section class="card" aria-labelledby="recs-title">
-        <div class="card-header"><h3 id="recs-title">Recommendations</h3></div>
-        <ul class="list">
-            {% for rec in impact_data.recommendations %}<li class="row" style="flex-wrap:nowrap;align-items:flex-start">{{ icon('arrow-right') }}<span>{{ rec }}</span></li>{% endfor %}
-        </ul>
-    </section>
-
-    {% if impact_data.dependency_graph.nodes %}
-    <section aria-labelledby="graph-title">
-        <div class="section-title"><h3 id="graph-title">Dependency graph</h3><span class="xs muted">Hover for details · scroll to zoom · drag to move</span></div>
-        <div id="graph" class="graph-box" role="img" aria-label="Graph of callers, data stores, topics and services connected to this API"></div>
-        <p class="xs muted" style="margin-top:8px">
-            {% if scanner %}The endpoint is in the middle: callers point at it; arrows out are the tables, caches, topics and services it uses; grey nodes are other endpoints sharing those resources.
-            {% else %}Nodes are documented APIs; links are relationships guessed from shared paths and names.{% endif %}
-        </p>
-    </section>
     {% endif %}
+
+    {# 4. What this API uses #}
+    <section aria-labelledby="uses-title">
+        <div class="section-title">
+            <h3 id="uses-title">What this API uses</h3>
+            {% if impact_data.downstream_changes %}<span class="xs muted"><span class="dep-status dep-new">New</span> added in v{{ v2 }} · <span class="dep-status dep-removed">Removed</span> no longer used</span>{% endif %}
+        </div>
+        {% if view.dependencies %}
+        <div class="flow">
+            <div class="flow-col flow-callers" aria-label="Callers">
+                <div class="flow-label">Called by</div>
+                {% set callers = view.affected | selectattr('kind', 'equalto', 'caller') | list %}
+                {% for a in callers %}<div class="flow-node">{{ a.name }}</div>{% else %}<div class="flow-node flow-node-muted">External clients</div>{% endfor %}
+            </div>
+            <div class="flow-arrow" aria-hidden="true">{{ icon('arrow-right') }}</div>
+            <div class="flow-col flow-center">
+                <div class="flow-label">This API</div>
+                <div class="flow-node flow-node-main">
+                    {% if current_route.method %}<span class="method method-{{ current_route.method }}">{{ current_route.method }}</span>{% endif %}
+                    <span class="mono small break">{{ current_route.path or api }}</span>
+                </div>
+            </div>
+            <div class="flow-arrow" aria-hidden="true">{{ icon('arrow-right') }}</div>
+            <div class="flow-col flow-deps">
+                {% for g in view.dependencies %}
+                <div class="dep-group">
+                    <div class="flow-label">{{ icon(group_icons.get(g.group, 'box')) }} {{ g.label }}</div>
+                    <ul>
+                        {% for d in g.entries %}
+                        <li class="dep {% if d.status == 'removed' %}dep-is-removed{% endif %}">
+                            {% if d.operation %}<span class="dep-op">{{ d.operation }}</span>{% endif %}
+                            <span class="mono break">{{ d.name }}</span>
+                            {% if d.technology %}<span class="xs faint break">{{ d.technology }}</span>{% endif %}
+                            {% if d.status == 'new' %}<span class="dep-status dep-new">New</span>{% elif d.status == 'removed' %}<span class="dep-status dep-removed">Removed</span>{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% else %}
+        <div class="card card-body small muted">No databases, caches, messaging or external calls were detected for this API.</div>
+        {% endif %}
+
+        {% if impact_data.dependency_graph.nodes %}
+        <details class="disclosure" id="graph-details" style="margin-top:16px">
+            <summary>{{ icon('graph') }} Interactive graph</summary>
+            <div class="disclosure-body" style="padding-left:16px">
+                <p class="xs muted" style="margin:0 0 8px">Hover for details · scroll to zoom · drag to move.
+                    {% if scanner %}The API is in the middle; grey nodes are other endpoints sharing its tables, caches or topics.{% endif %}</p>
+                <div id="graph" class="graph-box" role="img" aria-label="Graph of callers, data stores, topics and services connected to this API"></div>
+            </div>
+        </details>
+        {% endif %}
+    </section>
 </div>
 {% endblock %}
 {% block page_scripts %}
 <script>
-    const graphData = {{ impact_data.dependency_graph | tojson }};
-    if (graphData.nodes && graphData.nodes.length) {
-        graphData.links = (graphData.links || []).map(l => Object.assign({kind: l.type || ""}, l));
-        renderGraph(document.getElementById("graph"), graphData, {height: 480});
-    }
+(function () {
+    var details = document.getElementById("graph-details");
+    if (!details) return;
+    var graphData = {{ impact_data.dependency_graph | tojson }};
+    var drawn = false;
+    details.addEventListener("toggle", function () {
+        if (!details.open || drawn) return;
+        drawn = true;
+        graphData.links = (graphData.links || []).map(function (l) { return Object.assign({kind: l.type || ""}, l); });
+        renderGraph(document.getElementById("graph"), graphData, {height: 460});
+    });
+})();
 </script>
 {% endblock %}
