@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import List, Optional, Union
 
 
@@ -10,11 +10,17 @@ class Parameter(BaseModel):
 
 
 class StatusCode(BaseModel):
+    # Spring scanner also sends source / reason
+    model_config = ConfigDict(extra="allow")
+
     code: int
-    detail: str
+    detail: Optional[str] = None
 
 
 class Route(BaseModel):
+    # Keep every field the scanner sends (integrations, security, ...)
+    model_config = ConfigDict(extra="allow")
+
     # 🔥 support both names
     function_name: Optional[str] = None
     function: Optional[str] = None
@@ -43,6 +49,8 @@ class Route(BaseModel):
 
 
 class AnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     scanner_version: str
     repository: str
     commit: str
@@ -53,3 +61,6 @@ class AnalyzeRequest(BaseModel):
 
     routes: List[Route]
     metadata: Optional[dict] = {}
+
+    # application model per framework: {"spring": {...}}
+    architecture: Optional[dict] = {}

@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: shop-service
+  datasource:
+    url: jdbc:postgresql://db.internal:5432/shop
+    username: shop
+    password: s3cr3t
+  data:
+    redis:
+      host: redis.internal
+      port: 6379
+  kafka:
+    bootstrap-servers: kafka-1:9092,kafka-2:9092
+server:
+  port: 8081
+  servlet:
+    context-path: /shop
+payments:
+  base-url: https://api.payments.example.com
+inventory:
+  url: http://inventory-service
+topics:
+  orders: orders.created.v1
+storage:
+  bucket: shop-invoices

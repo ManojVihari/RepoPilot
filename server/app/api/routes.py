@@ -9,6 +9,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
 from app.services import docs_store
+from app.services.architecture_store import load_architecture, save_architecture
 from app.services.qa_plan_service import QAPlanService
 from app.services.doc_service import process_routes
 from app.services.llm_service import summarize_changes, search_apis_rag, answer_question_based_on_docs
@@ -78,6 +79,14 @@ def _default_versions(versions, v1, v2):
 @router.post("/analyze")
 async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
 
+    if request.architecture:
+        background_tasks.add_task(
+            save_architecture,
+            request.repository,
+            request.commit,
+            request.architecture
+        )
+
     background_tasks.add_task(
         process_routes,
         request.routes,
@@ -88,6 +97,17 @@ async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
     return {
         "status": "processing_started"
     }
+
+
+@router.get("/api/architecture")
+def get_architecture(repo: str, commit: str = None):
+    """Application model (modules, components, data, integrations, graph) from the latest scan."""
+    document = load_architecture(repo, commit)
+
+    if document is None:
+        return JSONResponse({"error": f"No architecture stored for '{repo}'"}, status_code=404)
+
+    return JSONResponse(document)
 
 
 @router.get("/ui", response_class=HTMLResponse)

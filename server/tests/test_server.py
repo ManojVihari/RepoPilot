@@ -128,3 +128,58 @@ def test_template_names_cannot_escape_templates_dir(tmp_path, monkeypatch):
     assert test_templates.create_template("..", "ok", "x", "y", []) is False
     assert test_templates.create_template("shop", "Happy Path", "x", "y", ["a"]) is True
     assert test_templates.get_template("shop", "Happy Path")["test_count"] == 1
+
+
+# ============================
+# SPRING SCANNER PAYLOAD (scanner 2.0)
+# ============================
+
+import json
+from pathlib import Path
+
+from app.services import architecture_store, doc_service
+
+SPRING_SCAN = Path(__file__).parent / "fixtures" / "spring_shop_scan.json"
+
+
+@pytest.fixture
+def isolated_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(docs_store, "DOCS_DIR", str(tmp_path / "docs"))
+    monkeypatch.setattr(doc_service.markdown_writer, "base_path", str(tmp_path / "docs"))
+    monkeypatch.setattr(doc_service.version_service, "base_path", str(tmp_path / "database"))
+    monkeypatch.setattr(architecture_store, "ARCHITECTURE_DIR", str(tmp_path / "architecture"))
+    # no LLM in tests: the generator falls back to its template output
+    monkeypatch.setattr(doc_service.generator, "ollama_url", "http://127.0.0.1:9/unreachable")
+    return tmp_path
+
+
+def test_spring_scan_is_documented_and_architecture_stored(client, isolated_storage):
+    payload = json.loads(SPRING_SCAN.read_text())
+
+    assert client.post("/analyze", json=payload).status_code == 200
+
+    doc = docs_store.read_version("spring-shop", "create", 1)
+    assert "| 402 | PAYMENT_REQUIRED | PaymentDeclinedException (ApiErrors.declined) |" in doc
+    assert "**Messaging** (kafka): publish to `orders.created.v1` (OrderCreatedEvent)" in doc
+    assert "**HTTP call** (rest_template): POST `https://api.payments.example.com/v1/charges/{id}`" in doc
+    assert "- **Handler:** `OrderController.create`" in doc
+    assert "URL rule `/**` → **authenticated**" in doc
+
+    stored = client.get("/api/architecture", params={"repo": "spring-shop"}).json()
+    assert stored["commit"] == "abc1234"
+    assert stored["architecture"]["spring"]["summary"]["endpoints"] == 4
+
+    by_commit = client.get("/api/architecture", params={"repo": "spring-shop", "commit": "abc1234"})
+    assert by_commit.status_code == 200
+    assert client.get("/api/architecture", params={"repo": "../etc"}).status_code == 404
+
+
+def test_status_code_source_does_not_change_signature():
+    route = json.loads(SPRING_SCAN.read_text())["routes"][0]
+    moved = dict(route, status_codes=[dict(s, source="somewhere else") for s in route["status_codes"]])
+
+    signature = SignatureService()
+    assert signature.generate(Route(**route)) == signature.generate(Route(**moved))
+
+    fewer = dict(route, status_codes=route["status_codes"][:1])
+    assert signature.generate(Route(**route)) != signature.generate(Route(**fewer))

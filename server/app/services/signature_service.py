@@ -19,16 +19,16 @@ class SignatureService:
         method, path, parameters and error codes.
         """
 
-        # The scanner sends `params`/`errors`; `parameters`/`status_codes`
-        # are the older field names.
+        # The scanner sends `params`/`errors`; `parameters` is the older name.
+        # Only status *codes* are contract; their detected source is not.
         parameters = route.parameters or route.params or []
-        errors = route.status_codes or route.errors or []
+        codes = sorted({s.code for s in (route.status_codes or [])})
 
         return {
             "method": route.method,
             "path": route.path,
             "parameters": self._sorted(parameters),
-            "status_codes": self._sorted(errors)
+            "status_codes": self._sorted(list(route.errors or []) + codes)
         }
 
     def _sorted(self, items):

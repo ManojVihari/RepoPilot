@@ -5,6 +5,7 @@ from docai.core.plugin_manager import PluginManager
 
 logger = logging.getLogger(__name__)
 
+SCANNER_VERSION = "2.0"
 SOURCE_EXTENSIONS = (".py", ".java")
 
 
@@ -29,6 +30,7 @@ class Scanner:
 
         all_routes = []
         detected_frameworks = []
+        architecture = {}
 
         for plugin in plugins:
             try:
@@ -43,6 +45,10 @@ class Scanner:
 
                     all_routes.extend(routes)
 
+                    describe = getattr(plugin.extractor, "describe_application", None)
+                    if describe is not None:
+                        architecture[plugin.name] = describe()
+
             except Exception as e:
                 logger.exception("Plugin %s failed: %s", plugin.name, e)
 
@@ -50,11 +56,12 @@ class Scanner:
             logger.warning("No frameworks detected")
 
         return {
-            "scanner_version": "1.1",
+            "scanner_version": SCANNER_VERSION,
             "repository": os.path.basename(repo_path),
             "commit": commit,
             "frameworks": detected_frameworks,
-            "routes": all_routes
+            "routes": all_routes,
+            "architecture": architecture
         }
 
     def get_changed_files(self, repo_path, commit):
@@ -86,9 +93,10 @@ class Scanner:
 
     def _empty_result(self, repo_path, commit):
         return {
-            "scanner_version": "1.1",
+            "scanner_version": SCANNER_VERSION,
             "repository": os.path.basename(repo_path),
             "commit": commit,
             "frameworks": [],
-            "routes": []
+            "routes": [],
+            "architecture": {}
         }

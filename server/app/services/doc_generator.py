@@ -23,6 +23,13 @@ class APIDocGenerator:
         response = getattr(route, "response", {})
         db_ops = getattr(route, "db_ops", [])
         source_code = getattr(route, "source_code", "")
+        description = getattr(route, "description", None) or ""
+        integrations = getattr(route, "integrations", None) or {}
+        status_codes = [
+            s.model_dump() if hasattr(s, "model_dump") else s
+            for s in (getattr(route, "status_codes", None) or [])
+        ]
+        security = getattr(route, "security", None) or {}
 
         # =========================
         # 🔥 NORMALIZATION
@@ -37,6 +44,9 @@ class APIDocGenerator:
         call_graph_json = safe_json(call_graph)
         response_json = safe_json(response)
         db_ops_json = safe_json(db_ops)
+        integrations_json = safe_json(integrations)
+        status_codes_json = safe_json(status_codes)
+        security_json = safe_json(security)
 
         # =========================
         # 🔥 STRONG BUSINESS PROMPT
@@ -84,6 +94,18 @@ Call Graph:
 
 Database Operations:
 {db_ops_json}
+
+Downstream integrations (databases, caches, messaging, external APIs reached through the call chain):
+{integrations_json}
+
+Status codes:
+{status_codes_json}
+
+Security:
+{security_json}
+
+Developer description:
+{description}
 
 Response:
 {response_json}

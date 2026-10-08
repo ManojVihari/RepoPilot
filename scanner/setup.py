@@ -11,7 +11,8 @@ setup(
         # Query/QueryCursor API used by the extractors needs tree-sitter 0.25+
         "tree-sitter>=0.25.0",
         "tree-sitter-java>=0.23.0",
-        "tree-sitter-python>=0.23.0"
+        "tree-sitter-python>=0.23.0",
+        "pyyaml>=6.0"
     ],
     entry_points={
         "console_scripts": [

@@ -12,6 +12,8 @@ CONTROLLER = """
 @RestController
 @RequestMapping("/users")
 public class UserController {
+    private UserService userService;
+
     @GetMapping("/{id}")
     public UserDto getUser(@PathVariable Long id) {
         return userService.findUser(id);
@@ -125,14 +127,18 @@ def test_scan_only_reports_routes_impacted_by_commit(repo):
     assert set(by_function(result)) == {"get_item", "create_item"}
 
 
-def test_scan_spring_impact_and_breaking_changes(repo):
+def test_scan_spring_impact_is_precise(repo):
     routes = by_function(Scanner().scan(str(repo), "HEAD~1"))
 
-    # findUser changed in the service -> getUser impacted through the call graph
-    assert set(routes["getUser"]["impact"]) == {"findUser", "findById"}
+    # only UserService.validate changed (reached from createUser), plus the
+    # UserRequest DTO; getUser does not reach either
+    assert "getUser" not in routes
 
     create = routes["createUser"]
-    assert {"type": "VALIDATION_ADDED", "field": "name", "rule": "notEmpty"} in create["breaking_changes"]
+    assert "changed: UserService.validate" in create["change_reasons"]
+    assert "changed model: UserRequest" in create["change_reasons"]
+    assert create["impact"] == ["UserService.store", "UserService.validate"]
+    assert {"type": "VALIDATION_ADDED", "field": "name", "rule": "notEmpty", "dto": "UserRequest"} in create["breaking_changes"]
 
 
 def test_dto_schema_matches_exact_class_name(repo):
@@ -142,6 +148,8 @@ def test_dto_schema_matches_exact_class_name(repo):
     # UserRequestAudit.java must not leak into UserRequest
     assert set(schema) == {"name", "email"}
     assert schema["email"]["validation"] == {"min": 2, "max": 10}
+    # HEAD has @NotEmpty (commit 2 replaced @NotNull)
+    assert schema["name"]["validation"] == {"notEmpty": True, "required": True}
 
 
 def test_fastapi_errors_only_come_from_http_exception(repo):
