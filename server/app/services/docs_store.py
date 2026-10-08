@@ -1,8 +1,9 @@
 """
 Read access to generated docs laid out as DOCS_DIR/<repo>/<api>/v<N>.md.
 """
+import json
 import os
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from app.config import DOCS_DIR
 
@@ -80,3 +81,53 @@ def read_version(repo: str, api: str, version) -> Optional[str]:
 
     with open(file_path, "r", encoding="utf-8") as f:
         return f.read()
+
+
+# ============================
+# DISPLAY TITLES
+# ============================
+# The doc name (e.g. OwnerController.processFindForm) stays the stable key for
+# folders, URLs and versions; titles are display names kept beside the docs.
+
+TITLES_FILE = ".titles.json"
+
+
+def _titles_path(repo: str) -> Optional[str]:
+    if not is_safe_name(repo):
+        return None
+    return os.path.join(DOCS_DIR, repo, TITLES_FILE)
+
+
+def _load_titles(repo: str) -> Dict[str, dict]:
+    path = _titles_path(repo)
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def get_titles(repo: str) -> Dict[str, str]:
+    """{doc name: display title}"""
+    return {api: entry.get("title") for api, entry in _load_titles(repo).items() if entry.get("title")}
+
+
+def get_title(repo: str, api: str) -> str:
+    return get_titles(repo).get(api) or api
+
+
+def title_entry(repo: str, api: str) -> Optional[dict]:
+    return _load_titles(repo).get(api)
+
+
+def set_title(repo: str, api: str, title: str, source: str):
+    path = _titles_path(repo)
+    if not path or not title:
+        return
+    titles = _load_titles(repo)
+    titles[api] = {"title": title, "source": source}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(titles, f, indent=2, sort_keys=True)

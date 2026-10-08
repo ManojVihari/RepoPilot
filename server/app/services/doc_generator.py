@@ -1,6 +1,44 @@
 import requests
 import json
+import re
 from app.config import LLM_ENABLED, OLLAMA_URL, OLLAMA_MODEL
+
+
+def clean_title(title):
+    """A usable one-line title from LLM output, or None."""
+    if not isinstance(title, str):
+        return None
+    title = re.sub(r"\s+", " ", title).strip().strip("\"'`*#.").strip()
+    if not title or len(title) > 80 or "/" in title or "{" in title:
+        return None
+    return title
+
+
+def humanize(name):
+    """processFindForm / get_user_by_id -> Process Find Form / Get User By Id"""
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", name.replace("_", " ")).split()
+    return " ".join(w[:1].upper() + w[1:] for w in words)
+
+
+def fallback_title(route):
+    """Title without an LLM: @Operation summary, first Javadoc sentence, else the humanized handler name."""
+    summary = (getattr(route, "summary", None) or "").strip()
+    if summary and len(summary) <= 80:
+        return summary
+    description = (getattr(route, "description", None) or "").strip()
+    first_sentence = re.split(r"(?<=[.!?])\s", description, maxsplit=1)[0].rstrip(".!? ") if description else ""
+    if first_sentence and len(first_sentence) <= 60:
+        return first_sentence[:1].upper() + first_sentence[1:]
+    name = getattr(route, "function_name", None) or getattr(route, "function", None) or "API"
+    title = humanize(name)
+
+    # "Init Creation Form" exists in several controllers: add the resource
+    handler = getattr(route, "handler", None) or ""
+    controller = handler.rsplit(".", 1)[0] if "." in handler else ""
+    resource = humanize(re.sub(r"(Rest)?(Controller|Resource|Api|Endpoint|Handler)$", "", controller))
+    if resource and resource.lower() not in title.lower():
+        title = f"{title} ({resource})"
+    return title
 
 
 class APIDocGenerator:
@@ -68,6 +106,7 @@ Convert technical details into meaningful system-level documentation.
 Return ONLY valid JSON:
 
 {{
+  "title": "Short human-friendly page title, 2-6 words in Title Case, saying what the endpoint does for its user (e.g. 'Search Owners by Last Name'). No HTTP verbs, paths or code names.",
   "overview": "What this API does and why it exists (business purpose)",
   "business_logic": "How the system processes the request internally (clear explanation)",
   "business_flow": ["Step 1...", "Step 2...", "Step 3..."],
@@ -139,6 +178,9 @@ Source Code:
 
                 # 🔥 BASIC VALIDATION
                 if "overview" in parsed and "business_flow" in parsed:
+                    title = clean_title(parsed.get("title"))
+                    parsed["title"] = title or fallback_title(route)
+                    parsed["title_source"] = "llm" if title else "fallback"
                     return json.dumps(parsed)
 
             except Exception as e:
@@ -151,6 +193,8 @@ Source Code:
         summary = getattr(route, "summary", None)
 
         return json.dumps({
+            "title": fallback_title(route),
+            "title_source": "fallback",
             "overview": summary or description or f"Provides functionality for {function_name}",
             "business_logic": "Processes request and interacts with underlying system components",
             "business_flow": [

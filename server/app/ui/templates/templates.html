@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test Templates - {{ api }} - DocAI</title>
+    <title>Test Templates - {{ api_title }} - DocAI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
@@ -96,14 +96,14 @@
     <div class="mb-8 fade-in">
         <h1 class="text-4xl font-bold text-slate-900 mb-2">Test Templates</h1>
         <p class="text-slate-600">
-            Manage reusable test case templates for <strong>{{ api }}</strong> in <strong>{{ repo }}</strong>
+            Manage reusable test case templates for <strong>{{ api_title }}</strong> in <strong>{{ repo }}</strong>
         </p>
     </div>
 
     <!-- Tabs -->
     <div class="flex gap-6 border-b border-slate-200 mb-8">
         <button onclick="switchTab('recommended')" class="pb-3 text-slate-600 font-semibold border-b-0 hover:text-slate-900 tab-link" data-tab="recommended">
-            <i class="fas fa-star"></i> Recommended for {{ api }}
+            <i class="fas fa-star"></i> Recommended for {{ api_title }}
         </button>
         <button onclick="switchTab('predefined')" class="pb-3 text-slate-600 font-semibold border-b-0 hover:text-slate-900 tab-link" data-tab="predefined">
             <i class="fas fa-cube"></i> Predefined Templates

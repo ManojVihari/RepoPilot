@@ -58,7 +58,7 @@ class VersionService:
         entry = self.get_version(repository, api_name, version)
         return entry.get("route") if entry else None
 
-    def save_version(self, repository, api_name, version, signature, commit_hash, content, route=None):
+    def save_version(self, repository, api_name, version, signature, commit_hash, content, route=None, title=None):
 
         file_path = self._get_file(repository, api_name)
 
@@ -73,6 +73,8 @@ class VersionService:
 
         if route is not None:
             new_entry["route"] = route
+        if title:
+            new_entry["title"] = title
 
         versions.append(new_entry)
 

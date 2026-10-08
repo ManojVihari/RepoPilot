@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ repo }} / {{ api }} - DocAI</title>
+    <title>{{ repo }} / {{ api_title }} - DocAI</title>
 
     <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -237,7 +237,7 @@
                 <a href="/ui/{{ repo }}/{{ item.name }}" class="block px-3 py-2.5 rounded-lg transition {% if item.name == api %}sidebar-active bg-blue-50 text-blue-700 font-medium{% else %}text-slate-600 hover:bg-slate-100{% endif %}">
                     <div class="flex items-center gap-2">
                         <i class="fas fa-code text-sm {% if item.name == api %}text-blue-600{% else %}text-slate-400{% endif %}"></i>
-                        <span>{{ item.name }}</span>
+                        <span>{{ item.title or item.name }}</span>
                     </div>
                 </a>
                 {% endfor %}
@@ -274,7 +274,7 @@
                         <span class="font-medium text-slate-900">{{ repo }}</span>
                         <i class="fas fa-chevron-right text-slate-400 text-xs"></i>
 
-                        <span class="font-medium text-slate-600">{{ api }}</span>
+                        <span class="font-medium text-slate-600">{{ api_title }}</span>
                     </div>
 
                     <!-- Action Buttons -->
@@ -324,7 +324,8 @@
                     <div class="mb-6 pb-4 border-b border-blue-100">
                         <div class="flex items-start justify-between">
                             <div>
-                                <h1 class="text-4xl font-bold text-slate-900 mb-2">{{ api }}</h1>
+                                <h1 class="text-4xl font-bold text-slate-900 mb-2">{{ api_title }}</h1>
+                                {% if api_title != api %}<p class="text-xs text-slate-400 font-mono mb-2" title="Stable API id used for versioning">{{ api }}</p>{% endif %}
                                 <div class="flex items-center gap-3 flex-wrap">
                                     <span class="inline-block px-3 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full">
                                         <i class="fas fa-tag mr-1"></i>v{{ version }}

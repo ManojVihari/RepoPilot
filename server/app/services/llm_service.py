@@ -3,6 +3,8 @@ LLM Service for generating summaries of API documentation changes
 and RAG-based search using local Ollama with Mistral model (no API keys required)
 """
 import requests
+import re
+import json
 import os
 from typing import Optional, List, Dict
 from app.config import DOCS_DIR, OLLAMA_URL, OLLAMA_MODEL
@@ -89,7 +91,8 @@ def calculate_api_confidence(query: str, api: Dict) -> float:
         Confidence score (0.0 to 1.0)
     """
     query_lower = query.lower()
-    api_name_lower = api.get("api", "").lower()
+    # match on the stable name and the display title
+    api_name_lower = f"{api.get('api', '')} {api.get('title', '')}".lower()
     repo_lower = api.get("repo", "").lower()
     
     # Split query into words for analysis
@@ -147,6 +150,15 @@ def calculate_api_confidence(query: str, api: Dict) -> float:
     return min(1.0, score)
 
 
+def _titles(repo_path: str) -> Dict[str, str]:
+    """Display titles written next to the docs (docs/<repo>/.titles.json)."""
+    try:
+        with open(os.path.join(repo_path, ".titles.json"), "r", encoding="utf-8") as f:
+            return {api: entry.get("title") for api, entry in json.load(f).items() if entry.get("title")}
+    except (OSError, ValueError):
+        return {}
+
+
 def search_apis_rag(query: str, base_path: str = DOCS_DIR) -> List[Dict]:
     """
     Search for APIs using RAG (Retrieval Augmented Generation) with local LLM.
@@ -175,6 +187,8 @@ def search_apis_rag(query: str, base_path: str = DOCS_DIR) -> List[Dict]:
             repo_path = os.path.join(base_path, repo)
             if not os.path.isdir(repo_path):
                 continue
+
+            titles = _titles(repo_path)
             
             for api_name in os.listdir(repo_path):
                 if api_name.startswith("."):
@@ -197,6 +211,7 @@ def search_apis_rag(query: str, base_path: str = DOCS_DIR) -> List[Dict]:
                 available_apis.append({
                     "repo": repo,
                     "api": api_name,
+                    "title": titles.get(api_name, api_name),
                     "version": latest_version
                 })
     
@@ -206,6 +221,7 @@ def search_apis_rag(query: str, base_path: str = DOCS_DIR) -> List[Dict]:
     # Step 2: Create context string for LLM
     api_list = "\n".join([
         f"- {api['repo']}/{api['api']} (v{api['version']})"
+        + (f" - {api['title']}" if api["title"] != api["api"] else "")
         for api in available_apis
     ])
     
@@ -255,8 +271,9 @@ Instructions:
             
             try:
                 repo, api_name = line.split("/", 1)
-                repo = repo.strip()
-                api_name = api_name.strip()
+                # tolerate list markers and echoed "(v2) - Title" suffixes
+                repo = repo.strip().lstrip("-*• ").strip()
+                api_name = re.split(r"[\s(]", api_name.strip(), maxsplit=1)[0].strip("`'\".,")
                 
                 # Find matching API in available list
                 for available_api in available_apis:
@@ -279,7 +296,7 @@ Instructions:
             keywords = query_lower.split()
             
             for available_api in available_apis:
-                api_name_lower = available_api["api"].lower()
+                api_name_lower = f"{available_api['api']} {available_api.get('title', '')}".lower()
                 repo_lower = available_api["repo"].lower()
                 
                 # Check if any keywords appear in API name (case-insensitive)

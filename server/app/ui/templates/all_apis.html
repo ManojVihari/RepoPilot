@@ -173,7 +173,8 @@
                             <div class="card-hover group bg-white rounded-lg border border-slate-200 p-5 h-full">
                                 <div class="flex items-start justify-between mb-4">
                                     <div class="flex-1">
-                                        <h4 class="font-semibold text-slate-900 group-hover:text-blue-700 transition">{{ api.name }}</h4>
+                                        <h4 class="font-semibold text-slate-900 group-hover:text-blue-700 transition">{{ api.title or api.name }}</h4>
+                                        {% if api.title and api.title != api.name %}<p class="text-xs text-slate-400 font-mono">{{ api.name }}</p>{% endif %}
                                         <p class="text-xs text-slate-500 mt-1">v{{ api.latest_version }}</p>
                                     </div>
                                     <span class="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded">Live</span>

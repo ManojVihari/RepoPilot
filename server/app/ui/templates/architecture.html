@@ -201,7 +201,7 @@
                     <td class="break-all"><span class="method m-{{ e.method }}">{{ e.method }}</span> <code>{{ e.path }}</code>
                         {% if e.secured %}<i class="fas fa-lock text-slate-400 ml-1" title="secured"></i>{% endif %}
                         <div class="text-xs text-slate-400">{{ e.module or '(root)' }}</div></td>
-                    <td class="break-words">{% if fn in documented %}<a class="text-blue-600 hover:underline" href="/ui/{{ repo }}/{{ fn }}">{{ e.handler }}</a>{% else %}{{ e.handler }}{% endif %}
+                    <td class="break-words">{% if fn in documented %}<a class="text-blue-600 hover:underline" href="/ui/{{ repo }}/{{ fn }}">{{ titles.get(fn) or e.handler }}</a>{% if titles.get(fn) %}<div class="text-xs text-slate-400 mono">{{ e.handler }}</div>{% endif %}{% else %}{{ e.handler }}{% endif %}
                         {% if e.summary %}<div class="text-xs text-slate-500">{{ e.summary[:120] }}</div>{% endif %}</td>
                     <td class="text-xs break-all">{% if e.request_body %}<div>in: <span class="mono">{{ e.request_body }}</span></div>{% endif %}
                         {% if e.response %}<div>out: <span class="mono">{{ e.response }}</span></div>{% endif %}

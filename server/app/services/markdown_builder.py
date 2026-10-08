@@ -8,7 +8,8 @@ class MarkdownBuilder:
         # 🔥 SAFE NAME
         api_name = getattr(route_data, "function_name", None) or getattr(route_data, "function", "unknown")
 
-        md = f"# API: {api_name}\n\n"
+        title = llm_sections.get("title") or api_name
+        md = f"# {title}\n\n"
 
         # =========================
         # 🔥 Overview
@@ -20,6 +21,7 @@ class MarkdownBuilder:
         # 🔥 Endpoint
         # =========================
         md += "## Endpoint\n"
+        md += f"- **API id:** `{getattr(route_data, 'doc_name', None) or getattr(route_data, 'handler', None) or api_name}`\n"
         md += f"- **Method:** {route_data.method}\n"
         md += f"- **Path:** `{route_data.path}`\n"
 

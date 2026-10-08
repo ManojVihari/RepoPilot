@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dependency Analysis - {{ api }} v{{ v2 }} - DocAI</title>
+    <title>Dependency Analysis - {{ api_title }} v{{ v2 }} - DocAI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -129,7 +129,7 @@
     <div class="mb-8 fade-in">
         <h1 class="text-4xl font-bold text-slate-900 mb-2">Dependency Analysis</h1>
         <p class="text-slate-600">
-            <strong>API:</strong> {{ api }}
+            <strong>API:</strong> {{ api_title }}{% if api_title != api %} <code class="text-xs text-slate-400">{{ api }}</code>{% endif %}
             <span class="text-slate-400 mx-2">|</span>
             <strong>Repository:</strong> {{ repo }}
             <span class="text-slate-400 mx-2">|</span>

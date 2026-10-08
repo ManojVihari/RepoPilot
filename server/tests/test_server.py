@@ -321,3 +321,81 @@ def test_consumers_from_feign_calls_and_gateway_routes():
         ("service_call", "AccountServiceImpl", "account-service"),
         ("gateway_route", "gateway", "gateway"),
     ]
+
+
+# ============================
+# DISPLAY TITLES
+# ============================
+
+from app.services.doc_generator import fallback_title
+
+
+def _llm_returning(titles):
+    """Fake generator: returns the given titles in order, like the LLM would."""
+    queue = list(titles)
+
+    def generate(route):
+        title = queue.pop(0)
+        return json.dumps({"title": title, "title_source": "llm" if title else "fallback",
+                           "overview": "o", "business_flow": [], "business_logic": "", "change_impact": ""})
+    return generate
+
+
+def test_title_is_display_only_and_stable(client, isolated_storage, monkeypatch):
+    monkeypatch.setattr(routes.version_service, "base_path", str(isolated_storage / "database"))
+    # v1 and v2 of create get different LLM wording; the first one is kept
+    monkeypatch.setattr(doc_service.generator, "generate_explanation",
+                        _llm_returning(["Place Order", "Search Order", "Cancel Order", "List Orders", "Create a New Order", "Find Order", "List All Orders"]))
+
+    for scan in (SPRING_SCAN, SPRING_SCAN_V2):
+        assert client.post("/analyze", json=json.loads(scan.read_text())).status_code == 200
+
+    api = "OrderController.create"
+    # versions still tracked under the stable name
+    assert docs_store.list_versions("spring-shop", api) == [1, 2]
+    assert docs_store.get_title("spring-shop", api) == "Place Order"
+    assert docs_store.read_version("spring-shop", api, 2).startswith("# Place Order\n")
+    assert routes.version_service.get_version("spring-shop", api, 2)["title"] == "Place Order"
+
+    page = client.get(f"/ui/spring-shop/{api}").text
+    assert "Place Order" in page and api in page          # title shown, id kept visible
+    assert f'href="/ui/spring-shop/{api}"' in page        # links use the stable name
+
+
+def test_fallback_title_is_upgraded_by_llm(isolated_storage):
+    from app.services.doc_service import _stable_title
+
+    assert _stable_title("r", "A.b", {"title": "B", "title_source": "fallback"}) == "B"
+    assert _stable_title("r", "A.b", {"title": "Book Room", "title_source": "llm"}) == "Book Room"
+    assert _stable_title("r", "A.b", {"title": "Reserve Room", "title_source": "llm"}) == "Book Room"
+    assert _stable_title("r", "A.b", {"title": "B", "title_source": "fallback"}) == "Book Room"
+
+
+def test_fallback_title_sources():
+    assert fallback_title(Route(method="GET", path="/x", function="processFindForm")) == "Process Find Form"
+    assert fallback_title(Route(method="GET", path="/x", function="initCreationForm", handler="PetController.initCreationForm")) == "Init Creation Form (Pet)"
+    assert fallback_title(Route(method="GET", path="/x", function="showOwner", handler="OwnerController.showOwner")) == "Show Owner"
+    assert fallback_title(Route(method="GET", path="/x", function="f", summary="Find owners")) == "Find owners"
+    assert fallback_title(Route(method="GET", path="/x", function="f", description="returns the vets. Cached.")) == "Returns the vets"
+
+
+def test_llm_title_is_parsed_and_cleaned(monkeypatch):
+    from app.services import doc_generator
+
+    class FakeResponse:
+        def json(self):
+            return {"response": 'Sure! {"title": "\\"Search Owners by Last Name.\\"", "overview": "o", "business_flow": ["a"]}'}
+
+    monkeypatch.setattr(doc_generator, "LLM_ENABLED", True)
+    monkeypatch.setattr(doc_generator.requests, "post", lambda *a, **k: FakeResponse())
+
+    result = json.loads(doc_generator.APIDocGenerator().generate_explanation(Route(**FASTAPI_ROUTE)))
+    assert (result["title"], result["title_source"]) == ("Search Owners by Last Name", "llm")
+
+    class BadTitle(FakeResponse):
+        def json(self):
+            return {"response": '{"title": "GET /owners/{id}", "overview": "o", "business_flow": []}'}
+
+    monkeypatch.setattr(doc_generator.requests, "post", lambda *a, **k: BadTitle())
+    result = json.loads(doc_generator.APIDocGenerator().generate_explanation(Route(**FASTAPI_ROUTE)))
+    assert (result["title"], result["title_source"]) == ("Get Item", "fallback")

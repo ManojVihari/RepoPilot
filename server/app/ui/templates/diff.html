@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Compare v{{ v1 }} vs v{{ v2 }} - {{ repo }} / {{ api }} - DocAI</title>
+    <title>Compare v{{ v1 }} vs v{{ v2 }} - {{ repo }} / {{ api_title }} - DocAI</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -105,7 +105,7 @@
                 <span class="text-slate-600">Dashboard</span>
             </a>
             <span class="text-slate-300">/</span>
-            <span class="text-slate-700 font-medium">{{ repo }} / {{ api }}</span>
+            <span class="text-slate-700 font-medium">{{ repo }} / {{ api_title }}</span>
         </div>
         <div class="flex items-center gap-2">
             <a href="/ui/{{ repo }}/{{ api }}/qa-plan?v1={{ v1 }}&v2={{ v2 }}" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition text-sm font-medium">

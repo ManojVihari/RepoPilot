@@ -73,7 +73,10 @@ def check_requirements():
             + f"  {sys.executable} -m pip install -r scanner/requirements.txt -r server/requirements.txt"
         )
 
-    from tree_sitter import Query  # noqa: F401  (0.25+ API used by the extractors)
+    import tree_sitter
+    if not hasattr(tree_sitter, "Query") or not hasattr(tree_sitter, "QueryCursor"):
+        sys.exit(f"tree-sitter {getattr(tree_sitter, '__version__', '?')} is too old: "
+                 f"{sys.executable} -m pip install 'tree-sitter>=0.25'")
 
 
 def main():

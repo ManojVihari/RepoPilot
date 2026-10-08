@@ -22,12 +22,17 @@ def test_documents_a_local_folder_without_git(tmp_path):
 
     assert "Documented   : 4 new version(s), 0 unchanged" in result.stdout
     docs = tmp_path / "docs" / "shop"
-    assert sorted(p.name for p in docs.iterdir()) == [
+    assert sorted(p.name for p in docs.iterdir() if p.is_dir()) == [
         "OrderController.cancel", "OrderController.create", "OrderController.get", "OrderController.list",
     ]
     doc = (docs / "OrderController.create" / "v1.md").read_text()
     assert "## Dependencies & Integrations" in doc
     assert "Places a new order." in doc   # Javadoc used as overview without an LLM
+    assert doc.startswith("# Places a new order\n")   # display title from the Javadoc
+    assert "- **API id:** `OrderController.create`" in doc
+    titles = json.loads((docs / ".titles.json").read_text())
+    assert titles["OrderController.create"] == {"title": "Places a new order", "source": "fallback"}
+    assert titles["OrderController.list"]["title"] == "List (Order)"
 
     stored = json.loads((tmp_path / "database" / "architecture" / "shop" / "latest.json").read_text())
     assert stored["commit"].startswith("local-")

@@ -42,8 +42,12 @@ DOC_MARKDOWN_EXTENSIONS = [
 
 def _nav_context(repo):
     """Sidebar data shared by the per-API pages."""
+    titles = docs_store.get_titles(repo)
     return {
-        "apis": [{"name": api} for api in docs_store.list_apis(repo)],
+        "apis": sorted(
+            ({"name": api, "title": titles.get(api, api)} for api in docs_store.list_apis(repo)),
+            key=lambda a: a["title"].lower(),
+        ),
         "repos": docs_store.list_repos(),
         "has_architecture": has_architecture(repo),
     }
@@ -54,10 +58,11 @@ def _repos_overview(include_version_count=False):
 
     for repo in docs_store.list_repos():
         apis = []
+        titles = docs_store.get_titles(repo)
 
         for api in docs_store.list_apis(repo):
             versions = docs_store.list_versions(repo, api)
-            entry = {"name": api, "latest_version": versions[-1]}
+            entry = {"name": api, "title": titles.get(api, api), "latest_version": versions[-1]}
 
             if include_version_count:
                 entry["versions"] = len(versions)
@@ -294,6 +299,7 @@ def api_diff(request: Request, repo: str, api: str, v1: int, v2: int):
         {
             "repo": repo,
             "api": api,
+            "api_title": docs_store.get_title(repo, api),
             "v1": v1,
             "v2": v2,
             "rows": diff_rows,
@@ -314,6 +320,7 @@ def _render_doc_page(request, repo, api, version, md_content):
         {
             "repo": repo,
             "api": api,
+            "api_title": docs_store.get_title(repo, api),
             "version": version,
             "content": html_content,
             "toc": toc,
@@ -342,6 +349,7 @@ def architecture_page(request: Request, repo: str):
             "commit": document.get("commit"),
             "model": model,
             "system_graph": build_architecture_graph(document, "system"),
+            "titles": docs_store.get_titles(repo),
             **_nav_context(repo)
         }
     )
@@ -393,6 +401,7 @@ def api_versions(request: Request, repo: str, api: str):
         {
             "repo": repo,
             "api": api,
+            "api_title": docs_store.get_title(repo, api),
             "versions": versions,
             **_nav_context(repo)
         }
@@ -529,6 +538,7 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
         {
             "repo": repo,
             "api": api,
+            "api_title": docs_store.get_title(repo, api),
             "v1": v1,
             "v2": v2,
             "qa_plan": qa_plan,
@@ -718,6 +728,7 @@ def dependencies_view(request: Request, repo: str, api: str, v1: int = None, v2:
         {
             "repo": repo,
             "api": api,
+            "api_title": docs_store.get_title(repo, api),
             "v1": v1,
             "v2": v2,
             "impact_data": impact_data,
@@ -740,6 +751,7 @@ def templates_view(request: Request, repo: str, api: str):
         {
             "repo": repo,
             "api": api,
+            "api_title": docs_store.get_title(repo, api),
             "recommendations": get_template_recommendations(api),
             "custom_templates": list_templates(repo),
             "predefined_templates": get_predefined_templates(),
