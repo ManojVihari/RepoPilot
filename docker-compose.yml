@@ -1,11 +1,12 @@
 # Self-hosted Mergeclear: server + Postgres (+ optional Ollama, extra workers).
 #
-#   cp .env.example .env                            # set MERGECLEAR_TOKEN and MERGECLEAR_DB_PASSWORD
+#   cp .env.example .env                            # set MERGECLEAR_DB_PASSWORD
 #   docker compose up -d                            # server + Postgres
 #   docker compose --profile llm up -d              # + Ollama (set MERGECLEAR_LLM=on in .env)
 #   docker compose --profile workers up -d --scale worker=3   # + dedicated job workers
 #
-# Then send scans:  MERGECLEAR_TOKEN=... mergeclear scan --push http://<host>:8000
+# Then open http://<host>:8000, create the admin account, and make an API key under
+# Settings → API keys for scanners:  MERGECLEAR_API_KEY=... mergeclear scan --push http://<host>:8000
 name: mergeclear
 
 services:
@@ -37,7 +38,8 @@ services:
         condition: service_healthy
     environment: &server-env
       MERGECLEAR_DATABASE_URL: postgresql+psycopg://mergeclear:${MERGECLEAR_DB_PASSWORD}@postgres:5432/mergeclear
-      MERGECLEAR_TOKEN: ${MERGECLEAR_TOKEN:?set MERGECLEAR_TOKEN in .env - scanners send it when uploading}
+      MERGECLEAR_ALLOW_SIGNUP: ${MERGECLEAR_ALLOW_SIGNUP:-false}
+      MERGECLEAR_COOKIE_SECURE: ${MERGECLEAR_COOKIE_SECURE:-auto}
       MERGECLEAR_WORKERS: ${MERGECLEAR_WORKERS:-2}
       MERGECLEAR_LLM: ${MERGECLEAR_LLM:-off}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434/api/generate}

@@ -7,7 +7,7 @@ from app.models.schema import Route
 from app.services import docs_store, test_templates
 from app.services.markdown_builder import MarkdownBuilder
 from app.services.signature_service import SignatureService
-from app import jobs
+from app import auth, jobs
 
 
 FASTAPI_ROUTE = {
@@ -38,14 +38,32 @@ def docs_dir():
     docs_store.save_version_if_changed("shop", "get_item", "sig-2", "c2", "# API: get_item\n\nsecond")
 
 
+ADMIN_EMAIL, ADMIN_PASSWORD = "admin@example.com", "admin-password-1"
+
+
+def signed_in_client(email, password, role="admin"):
+    """A browser signed in through the real sign-in form, with an API key of the same user."""
+    user = auth.create_user(email, email.split("@")[0], role, password)
+    browser = TestClient(app)
+    response = browser.post("/login", data={"email": email, "password": password}, follow_redirects=False)
+    assert response.status_code == 303, response.text
+    browser.api_key = auth.create_api_key(user["id"], "tests")["key"]
+    browser.user = user
+    return browser
+
+
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return signed_in_client(ADMIN_EMAIL, ADMIN_PASSWORD)
+
+
+def bearer(client):
+    return {"Authorization": f"Bearer {client.api_key}"}
 
 
 def analyze(client, payload, **kwargs):
-    """Upload a scan and run the job it queues, as a worker would."""
-    response = client.post("/analyze", json=payload, **kwargs)
+    """Upload a scan (as the scanner does, with an API key) and run the job it queues, as a worker would."""
+    response = client.post("/analyze", json=payload, headers=bearer(client), **kwargs)
     assert response.status_code == 202, response.text
     jobs.run_pending()
     return response
@@ -564,19 +582,6 @@ def test_architecture_page_uses_the_layered_diagram(two_versions):
     assert two_versions.get("/api/architecture/layered", params={"repo": "nope"}).status_code == 404
 
 
-def test_uploads_need_the_token_when_one_is_configured(client, monkeypatch):
-    from app.api import routes as r
-    report = {"scanner_version": "2.0", "repository": "shop", "commit": "abc", "routes": []}
-
-    assert client.post("/analyze", json=report).status_code == 202          # no token configured: open
-    monkeypatch.setattr(r, "INGEST_TOKEN", "s3cret")
-    assert client.post("/analyze", json=report).status_code == 401
-    assert client.post("/analyze", json=report, headers={"Authorization": "Bearer wrong"}).status_code == 401
-    assert client.post("/analyze", json=report, headers={"Authorization": "Bearer s3cret"}).status_code == 202
-    bad = client.post("/analyze", json={**report, "repository": "../etc"}, headers={"Authorization": "Bearer s3cret"})
-    assert bad.status_code == 400
-
-
 def test_health_endpoint(client):
     assert client.get("/healthz").json() == {"status": "ok", "database": "ok", "version": client.get("/healthz").json()["version"]}
 
@@ -648,10 +653,10 @@ def test_pages_carry_a_nonce_csp_that_matches_every_script(two_versions):
 
 def test_uploads_are_queued_and_visible_until_documented(client, isolated_storage):
     payload = json.loads(SPRING_SCAN.read_text())
-    queued = client.post("/analyze", json=payload)
+    queued = client.post("/analyze", json=payload, headers=bearer(client))
     assert queued.status_code == 202
     job_id = queued.json()["job_id"]
-    assert client.post("/analyze", json=payload).json() == {**queued.json(), "status": "already_queued"}
+    assert client.post("/analyze", json=payload, headers=bearer(client)).json() == {**queued.json(), "status": "already_queued"}
 
     job = client.get(f"/api/jobs/{job_id}").json()
     assert (job["status"], job["repo"], job["commit"]) == ("queued", "spring-shop", "abc1234")

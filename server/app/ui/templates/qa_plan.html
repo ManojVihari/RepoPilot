@@ -11,13 +11,13 @@
         {% if plan_generated_at %}<p class="small muted" style="margin-top:4px">Generated {{ plan_generated_at[:16] | replace('T', ' ') }} UTC{% if is_cached %} · cached{% endif %}</p>{% endif %}
     </div>
     <div class="row no-print">
-        <a class="btn btn-sm" href="/ui/{{ repo }}/{{ api }}/qa-plan?{% if v1 %}v1={{ v1 }}&{% endif %}v2={{ v2 }}&force=true">{{ icon('refresh') }} Regenerate</a>
+        {% if request.state.user.is_admin %}<a class="btn btn-sm" href="/ui/{{ repo }}/{{ api }}/qa-plan?{% if v1 %}v1={{ v1 }}&{% endif %}v2={{ v2 }}&force=true">{{ icon('refresh') }} Regenerate</a>{% endif %}
         <button class="btn btn-sm btn-ghost" type="button" data-print>{{ icon('printer') }} Print</button>
     </div>
 </div>
 
 {% if qa_plan.is_template %}
-<div style="margin-bottom:20px">{{ callout('info', 'Generic template plan', 'Ollama was not reachable, so this is a template. Start Ollama and choose Regenerate for a plan written from this API’s documentation.') }}</div>
+<div style="margin-bottom:20px">{{ callout('info', 'Generic template plan', 'Ollama was not reachable, so this is a template. Start Ollama, then an admin can regenerate a plan written from this API’s documentation.') }}</div>
 {% endif %}
 
 <div class="grid grid-stats" style="margin-bottom:24px">

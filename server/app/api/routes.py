@@ -1,16 +1,16 @@
 import difflib
 import html
-import hmac
 import re
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from app.config import INGEST_TOKEN, LLM_ENABLED, TEMPLATES_DIR
+from app.config import LLM_ENABLED, TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
-from app import jobs
+from app import auth, jobs
+from app.api import auth_routes
 from app.services import docs_store, ui_data
 from app.services.html_safety import clean_html
 from app.services.architecture_view import layered_component_view, layered_system_view
@@ -32,6 +32,17 @@ from bs4 import BeautifulSoup
 router = APIRouter()
 qa_plan_service = QAPlanService()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+auth_routes.templates = templates
+
+
+def _ago(moment):
+    """Stored timestamp -> "3 minutes ago" ("" for None)."""
+    if not moment:
+        return ""
+    return ui_data.relative_time(ui_data._timestamp(moment))
+
+
+templates.env.filters["ago"] = _ago
 
 
 def _inline_code(text):
@@ -72,11 +83,11 @@ def _nav_context(repo, api=None, tab=None, version=None):
     return context
 
 
-def _not_found(request, message, back=None):
+def _not_found(request, message, back=None, status=404, title="Not found"):
     return templates.TemplateResponse(
         request, "message.html",
-        {"title": "Not found", "message": message, "back": back or "/", "nav": None},
-        status_code=404,
+        {"title": title, "message": message, "back": back or "/ui", "nav": None},
+        status_code=status,
     )
 
 
@@ -105,12 +116,14 @@ def _default_versions(versions, v1, v2):
     return v1, v2
 
 
-def _authorized(http_request: Request) -> bool:
-    """Uploads need MERGECLEAR_TOKEN as a bearer token when the server has one configured."""
-    if not INGEST_TOKEN:
-        return True
-    scheme, _, token = (http_request.headers.get("authorization") or "").partition(" ")
-    return scheme.lower() == "bearer" and hmac.compare_digest(token.strip(), INGEST_TOKEN)
+def _deny(request: Request, admin: bool = False, csrf: bool = False) -> Optional[JSONResponse]:
+    """403 when the signed-in user (or API key) may not do this; None when allowed."""
+    user = request.state.user
+    if admin and not (user and user.is_admin):
+        return JSONResponse({"error": "this needs the admin role"}, status_code=403)
+    if csrf and not auth.csrf_ok(user, request.headers.get("x-csrf-token")):
+        return JSONResponse({"error": "missing or invalid CSRF token: reload the page"}, status_code=403)
+    return None
 
 
 @router.post("/analyze", status_code=202)
@@ -119,9 +132,9 @@ async def analyze(request: AnalyzeRequest, http_request: Request):
     Receive a scan report from `mergeclear scan --push` / `mergeclear push` and
     queue it for documentation. Answers at once with the job to follow.
     """
-    if not _authorized(http_request):
-        return JSONResponse({"error": "missing or invalid token"}, status_code=401,
-                            headers={"WWW-Authenticate": "Bearer"})
+    denied = _deny(http_request, admin=True, csrf=True)      # API keys need no CSRF token
+    if denied:
+        return denied
     if not docs_store.is_safe_name(request.repository):
         return JSONResponse({"error": f"invalid repository name {request.repository!r} (use --name)"}, status_code=400)
 
@@ -559,6 +572,9 @@ async def search_apis(request: Request):
     }
     """
     try:
+        denied = _deny(request, csrf=True)
+        if denied:
+            return denied
         body = await request.json()
         query = body.get("query", "").strip()
         
@@ -615,6 +631,9 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
     """
     if not docs_store.api_exists(repo, api):
         return _not_found(request, f"There is no API '{api}' in '{repo}'.")
+    if force and not request.state.user.is_admin:
+        return _not_found(request, "Only admins can regenerate QA plans.", f"/ui/{repo}/{api}/qa-plan",
+                          status=403, title="Not allowed")
 
     versions = docs_store.list_versions(repo, api)
 
@@ -678,7 +697,7 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
 
 
 @router.get("/api/qa-plan")
-def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = None, force: bool = False):
+def generate_qa_plan_api(request: Request, repo: str, api: str, v1: int = None, v2: int = None, force: bool = False):
     """
     API endpoint to generate QA plan as JSON.
     Useful for integrating with CI/CD pipelines.
@@ -686,6 +705,10 @@ def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = None, fo
     Args:
         force: If True, bypass cache and regenerate QA plan
     """
+    if force:
+        denied = _deny(request, admin=True)
+        if denied:
+            return denied
     if not docs_store.api_exists(repo, api):
         return JSONResponse(
             {"error": f"API '{api}' not found in repository '{repo}'"},
@@ -814,6 +837,7 @@ def list_templates_api(repo: str, category: str = None):
 
 @router.post("/api/templates/create")
 def create_template_api(
+    request: Request,
     repo: str,
     name: str,
     category: str,
@@ -830,6 +854,9 @@ def create_template_api(
         description: Template description
         test_cases: List of test case descriptions
     """
+    denied = _deny(request, admin=True, csrf=True)
+    if denied:
+        return denied
     success = create_template(repo, name, category, description, test_cases)
     
     return JSONResponse({

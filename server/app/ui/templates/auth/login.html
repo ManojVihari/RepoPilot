@@ -1,0 +1,24 @@
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon, callout %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<div class="auth-card card card-body">
+    <h1>Sign in to Mergeclear</h1>
+    {% if error %}{{ callout('danger', error) }}{% endif %}
+    <form method="post" action="/login" class="stack">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div class="field">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="username" required value="{{ email or '' }}" {% if not email %}autofocus{% endif %}>
+        </div>
+        <div class="field">
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required {% if email %}autofocus{% endif %}>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+    </form>
+    <p class="small muted auth-foot">
+        {% if allow_signup %}New here? <a href="/signup">Create an account</a>{% else %}No account yet? Ask an admin of this server to add you.{% endif %}
+    </p>
+</div>
+{% endblock %}

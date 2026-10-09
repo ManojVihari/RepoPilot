@@ -73,7 +73,7 @@ folder:
 | Setting | Flag | Environment | `mergeclear.yml` |
 |---|---|---|---|
 | Server URL | `--push URL`, `--server URL` | `MERGECLEAR_SERVER` | `server:` |
-| Upload token | | `MERGECLEAR_TOKEN` | (never put tokens in the repo) |
+| API key (Settings → API keys on the server) | | `MERGECLEAR_API_KEY` | (never put keys in the repo) |
 | Repository name | `--name` | `MERGECLEAR_NAME` | `name:` |
 | Branch (detached CI checkouts) | `--branch` | `MERGECLEAR_BRANCH` | `branch:` |
 
@@ -84,7 +84,7 @@ repository root) or the folder name.
 
 ## Use it in any pipeline
 
-There is no plugin to install: every recipe is the same two commands. Fetch
+There is no plugin to install: every recipe is the same two commands. Uploading needs an admin's API key in `MERGECLEAR_API_KEY`. Fetch
 enough history for the base ref to exist.
 
 **Any CI / shell**
@@ -133,7 +133,7 @@ exec mergeclear check --base origin/main
 
 **Keep the server's docs up to date** (after merges to main, or from cron)
 ```bash
-MERGECLEAR_TOKEN=... mergeclear scan --branch main --push https://mergeclear.internal --wait
+MERGECLEAR_API_KEY=... mergeclear scan --branch main --push https://mergeclear.internal --wait
 ```
 (`--wait` blocks until the server has documented the upload and fails if it could not.)
 
@@ -151,7 +151,7 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" mergeclear/scanner check 
 ### With Docker Compose
 
 ```bash
-cp .env.example .env            # set MERGECLEAR_TOKEN and MERGECLEAR_DB_PASSWORD (openssl rand -hex 24)
+cp .env.example .env            # set MERGECLEAR_DB_PASSWORD (openssl rand -hex 24)
 docker compose up -d            # Postgres + server on http://localhost:8000
 docker compose --profile llm up -d                          # optional: + Ollama (MERGECLEAR_LLM=on in .env)
 docker compose --profile workers up -d --scale worker=3     # optional: more job workers
@@ -164,12 +164,41 @@ What runs:
 - **server**: web UI and API, plus `MERGECLEAR_WORKERS` (default 2) background
   workers. Runs as a non-root user, waits for Postgres to be healthy, has a
   healthcheck on `/healthz` (503 when the database is unreachable), and refuses
-  to start without `MERGECLEAR_TOKEN` and `MERGECLEAR_DB_PASSWORD`.
+  to start without `MERGECLEAR_DB_PASSWORD`.
 - **worker** (profile `workers`): extra job workers on the same image. With an
   LLM, documenting uploads is the slow part; scale this instead of the server.
 - **ollama** (profile `llm`): downloads `OLLAMA_MODEL` once into `ollama-models`.
 
-Put the server behind your usual reverse proxy for TLS. Back up the database with
+**Accounts and API keys.**
+
+1. Open the server: the first visit asks for the **admin account** (only while
+   no user exists). Or create it from the shell:
+   `docker compose exec server python -m app.manage create-user --email you@corp --role admin`.
+2. Add people under **Settings → Users**: each gets a role and a temporary
+   password (shown once) to replace at first sign-in. Admins can change roles,
+   reset passwords and deactivate accounts (this ends their sessions and keys).
+   `MERGECLEAR_ALLOW_SIGNUP=true` lets people create their own viewer account.
+3. Create an **API key** under **Settings → API keys** for each pipeline or
+   script, and give it to the scanner as `MERGECLEAR_API_KEY`. A key acts with
+   its owner's role and is shown once; only a hash is stored. Keys show when
+   they were last used and can be revoked (admins see and revoke everyone's).
+
+| | viewer | admin |
+|---|---|---|
+| Read docs, history, impact, architecture, QA plans; ask questions | ✓ | ✓ |
+| Own API keys (read the API) | ✓ | ✓ |
+| Upload scans (`mergeclear scan --push`) | | ✓ |
+| Regenerate QA plans, save test templates | | ✓ |
+| Manage users and all API keys | | ✓ |
+
+Everything except the product page, sign-in and `/healthz` needs a sign-in or an
+API key. Passwords are hashed with scrypt, sessions are server-side (HttpOnly,
+SameSite=Lax cookie), every browser request that changes something carries a
+CSRF token, and repeated failed sign-ins lock the account for 15 minutes.
+Locked out? `python -m app.manage reset-password --email you@corp`.
+
+Put the server behind your usual reverse proxy for TLS (and set
+`MERGECLEAR_COOKIE_SECURE=true`). Back up the database with
 `docker compose exec postgres pg_dump -U mergeclear mergeclear > mergeclear.sql`.
 
 **How uploads are processed.** `/analyze` stores the report as a job and
@@ -225,7 +254,9 @@ python scripts/document_local_repo.py ~/code/my-service            # add --no-ll
 
 | Environment variable | Default | Purpose |
 |---|---|---|
-| `MERGECLEAR_TOKEN` | unset (uploads open) | Bearer token scanners must send to `/analyze`. **Set it in any shared setup.** |
+| `MERGECLEAR_ALLOW_SIGNUP` | `false` | `true` lets people create their own viewer account |
+| `MERGECLEAR_SESSION_DAYS` | `7` | How long a sign-in lasts |
+| `MERGECLEAR_COOKIE_SECURE` | `auto` | `true` behind a TLS-terminating proxy (cookie only sent over https) |
 | `MERGECLEAR_DATABASE_URL` | SQLite in `MERGECLEAR_DATABASE_DIR` | `postgresql+psycopg://user:password@host:5432/db` |
 | `MERGECLEAR_WORKERS` | `1` (`2` in compose) | Background job workers in the server process (`0`: run them separately) |
 | `MERGECLEAR_DATABASE_DIR` | `server/database` | Where the SQLite default lives |

@@ -44,7 +44,7 @@
             results.innerHTML = `<div class="card card-body muted" role="status">Thinking… this can take a few seconds with a local model.</div>`;
             const url = new URL(location.href); url.searchParams.set("q", query); history.replaceState(null, "", url);
             try {
-                const res = await fetch("/api/search", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({query})});
+                const res = await fetch("/api/search", {method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken()}, body: JSON.stringify({query})});
                 const data = await res.json();
                 let html = `<section class="card card-body answer"><h2 class="small faint" style="margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Answer</h2>${format(data.answer || data.message || "No answer.")}</section>`;
                 if (data.results && data.results.length) {

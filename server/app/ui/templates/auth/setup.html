@@ -1,0 +1,18 @@
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon, callout %}
+{% block title %}Set up{% endblock %}
+{% block content %}
+<div class="auth-card card card-body">
+    <p class="eyebrow">First run</p>
+    <h1>Create the admin account</h1>
+    <p class="small muted">This server has no users yet. The first account is an admin: it adds other people and creates the API keys scanners use.</p>
+    {% if error %}{{ callout('danger', error) }}{% endif %}
+    <form method="post" action="/setup" class="stack">
+        <div class="field"><label for="name">Name</label><input id="name" name="name" autocomplete="name" required value="{{ name or '' }}" autofocus></div>
+        <div class="field"><label for="email">Email</label><input id="email" name="email" type="email" autocomplete="username" required value="{{ email or '' }}"></div>
+        <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required aria-describedby="pw-hint"><span class="xs muted" id="pw-hint">At least 10 characters.</span></div>
+        <div class="field"><label for="confirm">Repeat the password</label><input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="10" required></div>
+        <button class="btn btn-primary btn-block" type="submit">Create admin account</button>
+    </form>
+</div>
+{% endblock %}

@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument("--no-llm", action="store_true", help="Do not call Ollama; build docs from scanner data only")
     parser.add_argument("--data-dir", help="Use a SQLite database in this folder (default: MERGECLEAR_DATABASE_URL or server/database)")
     parser.add_argument("--fresh", action="store_true", help="Delete existing docs/versions/architecture of this repo first")
-    parser.add_argument("--server", help="send the scan to a running Mergeclear server instead (uses MERGECLEAR_TOKEN)")
+    parser.add_argument("--server", help="send the scan to a running Mergeclear server instead (uses MERGECLEAR_API_KEY)")
     parser.add_argument("--save-json", help="Also write the raw scanner output to this file")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logs")
     return parser.parse_args()
@@ -131,10 +131,10 @@ def main():
 
     # ---------- send to a running server ----------
     if args.server:
-        from mergeclear.cli import CliError, push_report
+        from mergeclear.cli import CliError, api_key, push_report
 
         try:
-            answer = push_report(result, args.server, os.environ.get("MERGECLEAR_TOKEN"))
+            answer = push_report(result, args.server, api_key())
         except CliError as e:
             sys.exit(str(e))
         print(f"Sent to {args.server} ({answer.get('status')}); docs are generated in the background.")

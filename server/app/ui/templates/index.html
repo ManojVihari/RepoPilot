@@ -18,7 +18,11 @@
 <div class="card empty" style="margin-top:32px">
     {{ icon('book') }}
     <h2>No documentation yet</h2>
-    <p class="muted">Send a scan from any machine or pipeline with<br><code>mergeclear scan --push {{ request.base_url }}</code><br>or document a local folder with <code>python scripts/document_local_repo.py path/to/repo</code>.</p>
+    {% if request.state.user.is_admin %}
+    <p class="muted">Create an API key under <a href="/settings/api-keys">Settings → API keys</a>, then send a scan from any machine or pipeline:<br><code>MERGECLEAR_API_KEY=… mergeclear scan --push {{ request.base_url }}</code></p>
+    {% else %}
+    <p class="muted">An admin needs to send the first scan to this server.</p>
+    {% endif %}
 </div>
 {% else %}
 

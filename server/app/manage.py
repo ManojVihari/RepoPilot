@@ -6,6 +6,11 @@ Server administration.
     python -m app.manage process              run every queued job once, then exit
     python -m app.manage import-files [--docs DIR] [--database DIR]
                                               copy data of the file-based layout (before the database) in
+    python -m app.manage create-user --email E [--name N] [--role admin|viewer]
+                                              add a user; prints a temporary password to change at first sign-in
+    python -m app.manage reset-password --email E
+                                              new temporary password (e.g. a locked-out admin)
+    python -m app.manage list-users
 
 The database is MERGECLEAR_DATABASE_URL (or the SQLite default), as for the server.
 """
@@ -132,6 +137,13 @@ def main(argv=None) -> int:
     worker = sub.add_parser("worker", help="run background workers")
     worker.add_argument("-n", "--count", type=int, default=1)
     sub.add_parser("process", help="run queued jobs once, then exit")
+    create = sub.add_parser("create-user", help="add a user")
+    create.add_argument("--email", required=True)
+    create.add_argument("--name", default="")
+    create.add_argument("--role", choices=("admin", "viewer"), default="viewer")
+    reset = sub.add_parser("reset-password", help="issue a new temporary password")
+    reset.add_argument("--email", required=True)
+    sub.add_parser("list-users", help="list users")
     imp = sub.add_parser("import-files", help="import the file-based layout")
     imp.add_argument("--docs", default=DOCS_DIR, help=f"docs folder (default: {DOCS_DIR})")
     imp.add_argument("--database", default=DATABASE_DIR, help=f"database folder (default: {DATABASE_DIR})")
@@ -145,6 +157,28 @@ def main(argv=None) -> int:
         run_workers(max(1, args.count))
     elif args.command == "process":
         print(f"ran {jobs.run_pending('manage')} job(s)")
+    elif args.command in ("create-user", "reset-password", "list-users"):
+        from app import auth
+        try:
+            if args.command == "create-user":
+                password = auth.generate_password()
+                user = auth.create_user(args.email, args.name, args.role, password, must_change_password=True)
+                print(f"created {user['role']} {user['email']}; temporary password (changed at first sign-in): {password}")
+            elif args.command == "reset-password":
+                user = auth.get_user_by_email(args.email)
+                if user is None:
+                    raise auth.AuthError(f"no user {args.email}")
+                password = auth.generate_password()
+                auth.set_password(user["id"], password, must_change=True)
+                if not user["active"]:
+                    auth.update_user(user["id"], active=True)
+                print(f"temporary password for {user['email']} (changed at first sign-in): {password}")
+            else:
+                for u in auth.list_users():
+                    print(f"{u['email']:<40} {u['role']:<7} {'active' if u['active'] else 'deactivated'}")
+        except auth.AuthError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
     elif args.command == "import-files":
         counts = import_files(args.docs, args.database)
         print(f"imported into {db.describe()}: " + ", ".join(f"{v} {k}" for k, v in counts.items()))

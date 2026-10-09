@@ -22,7 +22,7 @@
     </ul>
     {% if t.test_cases | length > 4 %}<p class="xs faint" style="margin-top:4px">+ {{ t.test_cases | length - 4 }} more</p>{% endif %}
     {% if can_save %}
-    <div style="margin-top:12px"><button type="button" class="btn btn-sm save-template" data-template='{{ t | tojson | forceescape }}'>{{ icon('plus') }} Save to {{ repo }}</button></div>
+    {% if request.state.user.is_admin %}<div style="margin-top:12px"><button type="button" class="btn btn-sm save-template" data-template='{{ t | tojson | forceescape }}'>{{ icon('plus') }} Save to {{ repo }}</button></div>{% endif %}
     {% endif %}
 </article>
 {% endmacro %}
@@ -45,6 +45,7 @@
     <div class="card empty" style="margin-bottom:24px">{{ icon('layers') }}<h3>No saved templates</h3><p>Save one from the other tabs or create your own below.</p></div>
     {% endif %}
 
+    {% if request.state.user.is_admin %}
     <form class="card card-body stack" id="create-form">
         <h3>Create a template</h3>
         <div class="grid grid-2">
@@ -58,6 +59,9 @@
         <div class="field"><label for="tpl-cases">Test cases</label><textarea id="tpl-cases" name="cases" rows="5" required aria-describedby="tpl-cases-hint"></textarea><span class="field-hint" id="tpl-cases-hint">One test case per line.</span></div>
         <div class="row"><button class="btn btn-primary" type="submit">{{ icon('check') }} Save template</button><span id="form-status" role="status" class="small muted"></span></div>
     </form>
+    {% else %}
+    <p class="small muted">Only admins can save templates.</p>
+    {% endif %}
 </section>
 {% endblock %}
 {% block page_scripts %}
@@ -84,7 +88,7 @@
         const repo = {{ repo | tojson }};
         async function save(t) {
             const params = new URLSearchParams({repo, name: t.name, category: t.category || "happy_path", description: t.description || t.name});
-            const res = await fetch("/api/templates/create?" + params, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(t.test_cases)});
+            const res = await fetch("/api/templates/create?" + params, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken()}, body: JSON.stringify(t.test_cases)});
             const data = await res.json().catch(() => ({}));
             if (!res.ok || !data.success) throw new Error(data.message || "Could not save the template");
         }
@@ -95,7 +99,8 @@
             catch (e) { btn.disabled = false; btn.textContent = e.message; }
         }));
 
-        document.getElementById("create-form").addEventListener("submit", async e => {
+        const createForm = document.getElementById("create-form");
+        if (createForm) createForm.addEventListener("submit", async e => {
             e.preventDefault();
             const f = e.target, status = document.getElementById("form-status");
             const cases = f.cases.value.split("\n").map(s => s.trim()).filter(Boolean);

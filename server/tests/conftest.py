@@ -19,4 +19,6 @@ def database(tmp_path):
     if engine.dialect.name != "sqlite":
         db.metadata.drop_all(engine)
         db.metadata.create_all(engine)
+    import app.main
+    app.main._has_users = False          # cached per process; every test starts with an empty database
     yield engine

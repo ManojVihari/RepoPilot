@@ -150,7 +150,7 @@ def test_push_sends_the_report_with_the_token(shop, tmp_path, monkeypatch, capsy
         return Answer()
 
     monkeypatch.setattr(requests, "post", fake_post)
-    monkeypatch.setenv("MERGECLEAR_TOKEN", "s3cret")
+    monkeypatch.setenv("MERGECLEAR_API_KEY", "s3cret")
     (shop / "mergeclear.yml").write_text("server: http://mergeclear.internal/\nname: shop-api\n")
 
     assert run("-q", "scan", shop, "--push") == 0
@@ -231,3 +231,24 @@ def test_push_can_wait_until_the_server_documented_the_upload(shop, tmp_path, mo
     assert "could not document the upload: OperationalError: database is down" in capsys.readouterr().err
 
     assert run("scan", shop, "--wait") == cli.EXIT_ERROR            # nothing to wait for without --push
+
+
+def test_server_answers_explain_what_to_do(shop, tmp_path, monkeypatch, capsys):
+    import requests
+
+    class Answer:
+        ok, content, text = False, b"{}", "{}"
+
+        def __init__(self, status):
+            self.status_code = status
+
+    report = tmp_path / "r.json"
+    scan(shop, report)
+    monkeypatch.setenv("MERGECLEAR_TOKEN", "old-name-still-works")
+    for status, hint in ((401, "Settings → API keys"), (403, "must belong to an admin"), (503, "create the admin account")):
+        seen = {}
+        monkeypatch.setattr(requests, "post", lambda url, json=None, headers=None, timeout=None, s=status:
+                            seen.update(headers=headers) or Answer(s))
+        assert run("push", report, "--server", "http://mc") == cli.EXIT_ERROR
+        assert hint in capsys.readouterr().err
+        assert seen["headers"] == {"Authorization": "Bearer old-name-still-works"}

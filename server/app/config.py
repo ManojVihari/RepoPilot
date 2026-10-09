@@ -25,8 +25,13 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral")
 # MERGECLEAR_LLM=off generates docs from scanner data only (no Ollama calls)
 LLM_ENABLED = (env("LLM", "on") or "on").lower() not in ("off", "0", "false", "no")
 
-# MERGECLEAR_TOKEN: when set, scanners must send it (Authorization: Bearer ...) to upload reports
-INGEST_TOKEN = env("TOKEN")
+# ---- accounts
+# "true": people can create their own viewer account on the sign-in page (default: admins add users)
+ALLOW_SIGNUP = (env("ALLOW_SIGNUP", "false") or "").lower() in ("1", "true", "yes", "on")
+# how long a sign-in lasts
+SESSION_DAYS = float(env("SESSION_DAYS", "7"))
+# Secure flag on the session cookie: "auto" (when the request is https), "true" (behind a TLS proxy) or "false"
+COOKIE_SECURE = (env("COOKIE_SECURE", "auto") or "auto").lower()
 
 TEMPLATES_DIR = os.path.join(SERVER_DIR, "app", "ui", "templates")
 STATIC_DIR = os.path.join(SERVER_DIR, "app", "ui", "static")

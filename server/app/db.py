@@ -11,7 +11,7 @@ import os
 import threading
 from datetime import datetime, timezone
 
-from sqlalchemy import (JSON, BigInteger, Column, DateTime, Index, Integer, MetaData, String, Table, Text,
+from sqlalchemy import (JSON, BigInteger, Boolean, Column, DateTime, ForeignKey, Index, Integer, MetaData, String, Table, Text,
                         UniqueConstraint, create_engine, event, text)
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -111,6 +111,46 @@ jobs = Table(
     Index("ix_jobs_pick", "status", "run_after"),
     Index("ix_jobs_dedupe", "dedupe_key"),
     Index("ix_jobs_repo", "repo", "id"),
+)
+
+
+# accounts: people sign in with email + password; scanners use API keys
+users = Table(
+    "users", metadata,
+    Column("id", Id, primary_key=True, autoincrement=True),
+    Column("email", String(320), nullable=False, unique=True),       # stored lower-case
+    Column("name", String(200), nullable=False),
+    Column("role", String(20), nullable=False),                      # admin | viewer
+    Column("password_hash", String(300), nullable=False),
+    Column("active", Boolean, nullable=False, default=True),
+    Column("must_change_password", Boolean, nullable=False, default=False),
+    Timestamp(name="created_at", nullable=False),
+    Column("last_login_at", DateTime(timezone=True)),
+)
+
+# browser sessions; only a hash of the cookie value is stored
+sessions = Table(
+    "sessions", metadata,
+    Column("token_hash", String(64), primary_key=True),
+    Column("user_id", Id, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("csrf_token", String(64), nullable=False),
+    Timestamp(name="created_at", nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Index("ix_sessions_user", "user_id"),
+)
+
+# API keys for scanners and scripts; act with their owner's role
+api_keys = Table(
+    "api_keys", metadata,
+    Column("id", Id, primary_key=True, autoincrement=True),
+    Column("user_id", Id, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+    Column("name", String(100), nullable=False),
+    Column("prefix", String(32), nullable=False, unique=True),       # shown in lists, looked up on use
+    Column("secret_hash", String(64), nullable=False),
+    Timestamp(name="created_at", nullable=False),
+    Column("last_used_at", DateTime(timezone=True)),
+    Column("revoked_at", DateTime(timezone=True)),
+    Index("ix_api_keys_user", "user_id"),
 )
 
 

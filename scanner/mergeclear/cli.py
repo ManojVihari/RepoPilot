@@ -14,7 +14,7 @@ Exit codes: 0 ok / clear, 1 the check failed (hold, or review with
 --fail-on review), 2 usage or runtime error.
 
 Settings are read from flags, then environment variables (MERGECLEAR_SERVER,
-MERGECLEAR_TOKEN), then a mergeclear.yml in the scanned folder.
+MERGECLEAR_API_KEY), then a mergeclear.yml in the scanned folder.
 """
 import argparse
 import json
@@ -58,6 +58,11 @@ def setting(flag_value, env_name, config: dict, key: str, default=None):
     if os.environ.get(env_name):
         return os.environ[env_name]
     return config.get(key, default)
+
+
+def api_key():
+    """MERGECLEAR_API_KEY (created under Settings → API keys); MERGECLEAR_TOKEN is the older name."""
+    return os.environ.get("MERGECLEAR_API_KEY") or os.environ.get("MERGECLEAR_TOKEN") or None
 
 
 # ---------------------------------------------------------------- git facts
@@ -123,7 +128,12 @@ def push_report(report: dict, server: str, token: str = None) -> dict:
     except requests.RequestException as e:
         raise CliError(f"could not reach {url}: {e}")
     if response.status_code == 401:
-        raise CliError(f"{url} rejected the token (401): set MERGECLEAR_TOKEN to the server's ingest token")
+        raise CliError(f"{url} needs an API key (401): create one under Settings → API keys on the server "
+                       "and set MERGECLEAR_API_KEY")
+    if response.status_code == 403:
+        raise CliError(f"{url} refused the upload (403): the API key must belong to an admin")
+    if response.status_code == 503:
+        raise CliError(f"{url} is not set up yet (503): open it in a browser and create the admin account")
     if not response.ok:
         raise CliError(f"{url} answered {response.status_code}: {response.text[:300]}")
     return response.json() if response.content else {}
@@ -316,7 +326,7 @@ def cmd_scan(args) -> int:
         write_json(report, args.out)
     if args.push is not None:
         server = setting(args.push, "MERGECLEAR_SERVER", config, "server")
-        token = setting(None, "MERGECLEAR_TOKEN", {}, "")
+        token = api_key()
         answer = push_report(report, server, token)
         logger.info("sent to %s (%s)", server, answer.get("job_url") or answer.get("status", "ok"))
         if args.wait:
@@ -330,7 +340,7 @@ def cmd_push(args) -> int:
     report = read_report(args.report)
     config = load_config(os.getcwd())
     server = setting(args.server, "MERGECLEAR_SERVER", config, "server")
-    token = setting(None, "MERGECLEAR_TOKEN", {}, "")
+    token = api_key()
     answer = push_report(report, server, token)
     logger.info("sent %s @ %s to %s (%s)", report.get("repository"), _short(report.get("commit")), server,
                 answer.get("job_url") or answer.get("status", "ok"))
