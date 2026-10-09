@@ -1,0 +1,2413 @@
+{
+ "architecture": {
+  "spring": {
+   "components": [
+    {
+     "annotations": [
+      "SpringBootApplication",
+      "EnableCaching",
+      "EnableScheduling"
+     ],
+     "dependencies": [],
+     "file": "src/main/java/com/shop/ShopApplication.java",
+     "kind": "class",
+     "layer": "config",
+     "line": 3,
+     "methods": [
+      {
+       "line": 7,
+       "name": "main",
+       "params": [
+        "String[]"
+       ],
+       "returns": "void"
+      }
+     ],
+     "module": "",
+     "name": "ShopApplication",
+     "qualified_name": "com.shop.ShopApplication",
+     "stereotype": "application"
+    },
+    {
+     "annotations": [
+      "Component"
+     ],
+     "dependencies": [
+      {
+       "client": "web_client",
+       "field": "inventoryWebClient",
+       "injection": "constructor",
+       "type": "WebClient"
+      }
+     ],
+     "file": "src/main/java/com/shop/client/InventoryClient.java",
+     "integrations": [
+      "http:web_client"
+     ],
+     "kind": "class",
+     "layer": "service",
+     "line": 3,
+     "methods": [
+      {
+       "line": 9,
+       "name": "stock",
+       "params": [
+        "String"
+       ],
+       "returns": "Mono<StockLevel>"
+      }
+     ],
+     "module": "",
+     "name": "InventoryClient",
+     "qualified_name": "com.shop.client.InventoryClient",
+     "stereotype": "component"
+    },
+    {
+     "annotations": [
+      "Component"
+     ],
+     "config_properties": [
+      "${payments.base-url}"
+     ],
+     "dependencies": [
+      {
+       "client": "rest_template",
+       "field": "restTemplate",
+       "injection": "constructor",
+       "type": "RestTemplate"
+      }
+     ],
+     "file": "src/main/java/com/shop/client/PaymentClient.java",
+     "integrations": [
+      "http:rest_template",
+      "resilience:CircuitBreaker"
+     ],
+     "kind": "class",
+     "layer": "service",
+     "line": 3,
+     "methods": [
+      {
+       "line": 12,
+       "name": "charge",
+       "params": [
+        "Long"
+       ],
+       "returns": "boolean"
+      }
+     ],
+     "module": "",
+     "name": "PaymentClient",
+     "qualified_name": "com.shop.client.PaymentClient",
+     "stereotype": "component"
+    },
+    {
+     "annotations": [
+      "Configuration"
+     ],
+     "beans": [
+      {
+       "name": "inventoryWebClient",
+       "type": "WebClient"
+      },
+      {
+       "name": "restTemplate",
+       "type": "RestTemplate"
+      }
+     ],
+     "config_properties": [
+      "${inventory.url}"
+     ],
+     "dependencies": [],
+     "file": "src/main/java/com/shop/config/ClientConfig.java",
+     "kind": "class",
+     "layer": "config",
+     "line": 3,
+     "methods": [
+      {
+       "line": 8,
+       "name": "inventoryWebClient",
+       "params": [
+        "WebClient.Builder"
+       ],
+       "returns": "WebClient"
+      },
+      {
+       "line": 13,
+       "name": "restTemplate",
+       "params": [],
+       "returns": "RestTemplate"
+      }
+     ],
+     "module": "",
+     "name": "ClientConfig",
+     "qualified_name": "com.shop.config.ClientConfig",
+     "stereotype": "configuration"
+    },
+    {
+     "annotations": [
+      "Configuration",
+      "EnableWebSecurity"
+     ],
+     "beans": [
+      {
+       "name": "filterChain",
+       "type": "SecurityFilterChain"
+      }
+     ],
+     "dependencies": [],
+     "file": "src/main/java/com/shop/config/SecurityConfig.java",
+     "kind": "class",
+     "layer": "config",
+     "line": 3,
+     "methods": [
+      {
+       "line": 6,
+       "name": "filterChain",
+       "params": [
+        "HttpSecurity"
+       ],
+       "returns": "SecurityFilterChain"
+      }
+     ],
+     "module": "",
+     "name": "SecurityConfig",
+     "qualified_name": "com.shop.config.SecurityConfig",
+     "stereotype": "configuration"
+    },
+    {
+     "annotations": [
+      "Component"
+     ],
+     "config_properties": [
+      "${storage.bucket}"
+     ],
+     "dependencies": [
+      {
+       "client": "s3",
+       "field": "s3",
+       "injection": "constructor",
+       "type": "S3Client"
+      },
+      {
+       "client": "sqs",
+       "field": "sqs",
+       "injection": "constructor",
+       "type": "SqsTemplate"
+      }
+     ],
+     "file": "src/main/java/com/shop/messaging/OrderEventsListener.java",
+     "integrations": [
+      "messaging:sqs",
+      "storage:s3"
+     ],
+     "kind": "class",
+     "layer": "service",
+     "line": 3,
+     "methods": [
+      {
+       "line": 13,
+       "name": "onOrderCreated",
+       "params": [
+        "OrderCreatedEvent"
+       ],
+       "returns": "void"
+      },
+      {
+       "line": 18,
+       "name": "notifyWarehouse",
+       "params": [
+        "OrderCreatedEvent"
+       ],
+       "returns": "void"
+      },
+      {
+       "line": 23,
+       "name": "retryFailed",
+       "params": [],
+       "returns": "void"
+      }
+     ],
+     "module": "",
+     "name": "OrderEventsListener",
+     "qualified_name": "com.shop.messaging.OrderEventsListener",
+     "stereotype": "component"
+    },
+    {
+     "annotations": [
+      "Repository"
+     ],
+     "dependencies": [
+      {
+       "client": "jdbc",
+       "field": "jdbcTemplate",
+       "injection": "constructor",
+       "type": "JdbcTemplate"
+      }
+     ],
+     "file": "src/main/java/com/shop/repo/AuditDao.java",
+     "integrations": [
+      "database:jdbc"
+     ],
+     "kind": "class",
+     "layer": "data",
+     "line": 3,
+     "methods": [
+      {
+       "line": 9,
+       "name": "record",
+       "params": [
+        "Long",
+        "String"
+       ],
+       "returns": "void"
+      }
+     ],
+     "module": "",
+     "name": "AuditDao",
+     "qualified_name": "com.shop.repo.AuditDao",
+     "stereotype": "repository"
+    },
+    {
+     "annotations": [],
+     "dependencies": [],
+     "entity": "Order",
+     "extends": [
+      "JpaRepository<Order,Long>"
+     ],
+     "file": "src/main/java/com/shop/repo/OrderRepository.java",
+     "kind": "interface",
+     "layer": "data",
+     "line": 3,
+     "methods": [
+      {
+       "line": 4,
+       "name": "findByCustomerEmail",
+       "params": [
+        "String"
+       ],
+       "returns": "List<Order>"
+      },
+      {
+       "line": 6,
+       "name": "updateStatus",
+       "params": [
+        "Long",
+        "OrderStatus"
+       ],
+       "returns": "int"
+      }
+     ],
+     "module": "",
+     "name": "OrderRepository",
+     "qualified_name": "com.shop.repo.OrderRepository",
+     "stereotype": "repository",
+     "store": "jpa"
+    },
+    {
+     "annotations": [
+      "Service",
+      "RequiredArgsConstructor"
+     ],
+     "config_properties": [
+      "${topics.orders}"
+     ],
+     "dependencies": [
+      {
+       "field": "orderRepository",
+       "injection": "constructor",
+       "target": "com.shop.repo.OrderRepository",
+       "target_stereotype": "repository",
+       "type": "OrderRepository"
+      },
+      {
+       "field": "auditDao",
+       "injection": "constructor",
+       "target": "com.shop.repo.AuditDao",
+       "target_stereotype": "repository",
+       "type": "AuditDao"
+      },
+      {
+       "field": "paymentClient",
+       "injection": "constructor",
+       "target": "com.shop.client.PaymentClient",
+       "target_stereotype": "component",
+       "type": "PaymentClient"
+      },
+      {
+       "client": "kafka",
+       "field": "kafkaTemplate",
+       "injection": "constructor",
+       "type": "KafkaTemplate<String,OrderCreatedEvent>"
+      },
+      {
+       "client": "event",
+       "field": "events",
+       "injection": "constructor",
+       "type": "ApplicationEventPublisher"
+      },
+      {
+       "client": "redis",
+       "field": "redis",
+       "injection": "constructor",
+       "type": "StringRedisTemplate"
+      }
+     ],
+     "description": "Order lifecycle: persistence, payment, events.",
+     "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+     "implements": [
+      "OrderService"
+     ],
+     "integrations": [
+      "cache:redis",
+      "cache:spring-cache",
+      "database:jpa",
+      "event:spring-event",
+      "messaging:kafka"
+     ],
+     "kind": "class",
+     "layer": "service",
+     "line": 4,
+     "methods": [
+      {
+       "line": 18,
+       "name": "create",
+       "params": [
+        "CreateOrderRequest"
+       ],
+       "returns": "OrderResponse"
+      },
+      {
+       "line": 33,
+       "name": "get",
+       "params": [
+        "Long"
+       ],
+       "returns": "OrderResponse"
+      }
+     ],
+     "module": "",
+     "name": "OrderServiceImpl",
+     "qualified_name": "com.shop.service.OrderServiceImpl",
+     "stereotype": "service"
+    },
+    {
+     "annotations": [
+      "RestControllerAdvice"
+     ],
+     "dependencies": [],
+     "file": "src/main/java/com/shop/web/ApiErrors.java",
+     "kind": "class",
+     "layer": "web",
+     "line": 3,
+     "methods": [
+      {
+       "line": 5,
+       "name": "declined",
+       "params": [
+        "PaymentDeclinedException"
+       ],
+       "returns": "String"
+      }
+     ],
+     "module": "",
+     "name": "ApiErrors",
+     "qualified_name": "com.shop.web.ApiErrors",
+     "stereotype": "controller_advice"
+    },
+    {
+     "annotations": [
+      "RestController",
+      "RequestMapping",
+      "RequiredArgsConstructor"
+     ],
+     "dependencies": [
+      {
+       "field": "orderService",
+       "implementations": [
+        "com.shop.service.OrderServiceImpl"
+       ],
+       "injection": "constructor",
+       "target": "com.shop.service.OrderService",
+       "target_stereotype": "class",
+       "type": "OrderService"
+      }
+     ],
+     "file": "src/main/java/com/shop/web/OrderController.java",
+     "kind": "class",
+     "layer": "web",
+     "line": 3,
+     "methods": [
+      {
+       "line": 13,
+       "name": "create",
+       "params": [
+        "CreateOrderRequest",
+        "String"
+       ],
+       "returns": "OrderResponse"
+      },
+      {
+       "line": 20,
+       "name": "get",
+       "params": [
+        "Long"
+       ],
+       "returns": "ResponseEntity<OrderResponse>"
+      },
+      {
+       "line": 29,
+       "name": "cancel",
+       "params": [
+        "Long"
+       ],
+       "returns": "void"
+      },
+      {
+       "line": 34,
+       "name": "list",
+       "params": [
+        "Pageable",
+        "OrderStatus"
+       ],
+       "returns": "Page<OrderResponse>"
+      }
+     ],
+     "module": "",
+     "name": "OrderController",
+     "qualified_name": "com.shop.web.OrderController",
+     "stereotype": "rest_controller"
+    }
+   ],
+   "data_model": {
+    "entities": [
+     {
+      "extends": [],
+      "fields": [
+       {
+        "generated": "IDENTITY",
+        "id": true,
+        "name": "id",
+        "type": "Long"
+       },
+       {
+        "column": "customer_email",
+        "name": "customerEmail",
+        "nullable": false,
+        "type": "String"
+       },
+       {
+        "name": "status",
+        "type": "OrderStatus"
+       },
+       {
+        "name": "lines",
+        "relationship": "OneToMany",
+        "type": "List<OrderLine>"
+       }
+      ],
+      "file": "src/main/java/com/shop/model/Order.java",
+      "jpa_name": null,
+      "kind": "Entity",
+      "module": "",
+      "name": "Order",
+      "qualified_name": "com.shop.model.Order",
+      "relationships": [
+       {
+        "cascade": "ALL",
+        "field": "lines",
+        "mapped_by": "order",
+        "target": "OrderLine",
+        "type": "OneToMany"
+       }
+      ],
+      "store": "jpa",
+      "table": "orders",
+      "table_inferred": false
+     },
+     {
+      "extends": [],
+      "fields": [
+       {
+        "id": true,
+        "name": "id",
+        "type": "Long"
+       },
+       {
+        "name": "sku",
+        "type": "String"
+       },
+       {
+        "name": "quantity",
+        "type": "int"
+       },
+       {
+        "name": "order",
+        "relationship": "ManyToOne",
+        "type": "Order"
+       }
+      ],
+      "file": "src/main/java/com/shop/model/OrderLine.java",
+      "jpa_name": null,
+      "kind": "Entity",
+      "module": "",
+      "name": "OrderLine",
+      "qualified_name": "com.shop.model.OrderLine",
+      "relationships": [
+       {
+        "field": "order",
+        "target": "Order",
+        "type": "ManyToOne"
+       }
+      ],
+      "store": "jpa",
+      "table": "order_line",
+      "table_inferred": true
+     }
+    ],
+    "repositories": [
+     {
+      "base": "JpaRepository",
+      "custom_queries": [
+       {
+        "method": "updateStatus",
+        "native": false,
+        "operation": "WRITE",
+        "query": "update Order o set o.status = :status where o.id = :id",
+        "tables": [
+         "orders"
+        ]
+       }
+      ],
+      "entity": "Order",
+      "entity_qualified_name": "com.shop.model.Order",
+      "file": "src/main/java/com/shop/repo/OrderRepository.java",
+      "id_type": "Long",
+      "methods": [
+       "findByCustomerEmail",
+       "updateStatus"
+      ],
+      "module": "",
+      "name": "OrderRepository",
+      "qualified_name": "com.shop.repo.OrderRepository",
+      "store": "jpa"
+     }
+    ],
+    "tables": [
+     {
+      "accessed_by": [
+       "AuditDao.record"
+      ],
+      "entities": [],
+      "modules": [],
+      "name": "audit_log",
+      "operations": [
+       "WRITE"
+      ],
+      "store": "jdbc"
+     },
+     {
+      "accessed_by": [],
+      "entities": [
+       "OrderLine"
+      ],
+      "modules": [
+       ""
+      ],
+      "name": "order_line",
+      "operations": [],
+      "store": "jpa"
+     },
+     {
+      "accessed_by": [
+       "OrderServiceImpl.create",
+       "OrderServiceImpl.get"
+      ],
+      "entities": [
+       "Order"
+      ],
+      "modules": [
+       ""
+      ],
+      "name": "orders",
+      "operations": [
+       "READ",
+       "WRITE"
+      ],
+      "store": "jpa"
+     }
+    ]
+   },
+   "endpoints": [
+    {
+     "caches": [
+      "order:{getId()}",
+      "orders"
+     ],
+     "calls_external": [
+      "api.payments.example.com"
+     ],
+     "handler": "OrderController.create",
+     "method": "POST",
+     "module": "",
+     "path": "/api/orders",
+     "publishes": [
+      "orders.created.v1",
+      "warehouse-picking"
+     ],
+     "request_body": "CreateOrderRequest",
+     "response": "OrderResponse",
+     "secured": true,
+     "status_codes": [
+      201,
+      400,
+      402
+     ],
+     "summary": "Places a new order.",
+     "tables": [
+      "audit_log",
+      "orders"
+     ]
+    },
+    {
+     "caches": [
+      "orders"
+     ],
+     "calls_external": [],
+     "handler": "OrderController.get",
+     "method": "GET",
+     "module": "",
+     "path": "/api/orders/{id}",
+     "publishes": [],
+     "request_body": null,
+     "response": "OrderResponse",
+     "secured": true,
+     "status_codes": [
+      200,
+      400,
+      404
+     ],
+     "summary": null,
+     "tables": [
+      "orders"
+     ]
+    },
+    {
+     "caches": [],
+     "calls_external": [],
+     "handler": "OrderController.cancel",
+     "method": "DELETE",
+     "module": "",
+     "path": "/api/orders/{id}",
+     "publishes": [],
+     "request_body": null,
+     "response": "void",
+     "secured": true,
+     "status_codes": [
+      200,
+      410
+     ],
+     "summary": null,
+     "tables": []
+    },
+    {
+     "caches": [],
+     "calls_external": [],
+     "handler": "OrderController.list",
+     "method": "GET",
+     "module": "",
+     "path": "/api/orders",
+     "publishes": [],
+     "request_body": null,
+     "response": "Page<OrderResponse>",
+     "secured": true,
+     "status_codes": [
+      200
+     ],
+     "summary": null,
+     "tables": []
+    }
+   ],
+   "exception_handling": [
+    {
+     "exception": "OrderNotFoundException",
+     "reason": null,
+     "source": "@ResponseStatus",
+     "status": 404
+    },
+    {
+     "exception": "PaymentDeclinedException",
+     "global": true,
+     "handler": "ApiErrors.declined",
+     "handler_id": "com.shop.web.ApiErrors#declined(1)",
+     "source": "@ExceptionHandler",
+     "status": 402
+    }
+   ],
+   "graph": {
+    "edges": [
+     {
+      "details": [
+       "orders.created.v1"
+      ],
+      "from": "broker:kafka",
+      "kind": "delivers",
+      "to": "component:com.shop.messaging.OrderEventsListener"
+     },
+     {
+      "details": [
+       "GET /stock/{sku}"
+      ],
+      "from": "component:com.shop.client.InventoryClient",
+      "kind": "http",
+      "to": "external:inventory-service"
+     },
+     {
+      "details": [
+       "POST https://api.payments.example.com/v1/charges/{id}"
+      ],
+      "from": "component:com.shop.client.PaymentClient",
+      "kind": "http",
+      "to": "external:api.payments.example.com"
+     },
+     {
+      "details": [
+       "warehouse-picking"
+      ],
+      "from": "component:com.shop.messaging.OrderEventsListener",
+      "kind": "publishes",
+      "to": "broker:sqs"
+     },
+     {
+      "details": [
+       "shop-invoices"
+      ],
+      "from": "component:com.shop.messaging.OrderEventsListener",
+      "kind": "write",
+      "to": "storage:s3"
+     },
+     {
+      "details": [
+       "audit_log"
+      ],
+      "from": "component:com.shop.repo.AuditDao",
+      "kind": "write",
+      "to": "datastore:postgresql:db.internal/shop"
+     },
+     {
+      "details": [
+       "orders.created.v1"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "publishes",
+      "to": "broker:kafka"
+     },
+     {
+      "details": [
+       "order:{getId()}"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "write",
+      "to": "cache::redis"
+     },
+     {
+      "details": [
+       "orders"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "evict",
+      "to": "cache::spring-cache"
+     },
+     {
+      "details": [
+       "orders"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "read_through",
+      "to": "cache::spring-cache"
+     },
+     {
+      "details": [
+       "PaymentClient.charge"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "calls",
+      "to": "component:com.shop.client.PaymentClient"
+     },
+     {
+      "details": [
+       "paymentClient"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "injects",
+      "to": "component:com.shop.client.PaymentClient"
+     },
+     {
+      "details": [
+       "OrderEventsListener.notifyWarehouse"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "calls",
+      "to": "component:com.shop.messaging.OrderEventsListener"
+     },
+     {
+      "details": [
+       "AuditDao.record"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "calls",
+      "to": "component:com.shop.repo.AuditDao"
+     },
+     {
+      "details": [
+       "auditDao"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "injects",
+      "to": "component:com.shop.repo.AuditDao"
+     },
+     {
+      "details": [
+       "orderRepository"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "injects",
+      "to": "component:com.shop.repo.OrderRepository"
+     },
+     {
+      "details": [
+       "orders"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "read",
+      "to": "datastore:postgresql:db.internal/shop"
+     },
+     {
+      "details": [
+       "orders"
+      ],
+      "from": "component:com.shop.service.OrderServiceImpl",
+      "kind": "write",
+      "to": "datastore:postgresql:db.internal/shop"
+     },
+     {
+      "details": [
+       "OrderServiceImpl.create",
+       "OrderServiceImpl.get"
+      ],
+      "from": "component:com.shop.web.OrderController",
+      "kind": "calls",
+      "to": "component:com.shop.service.OrderServiceImpl"
+     },
+     {
+      "details": [
+       "orderService"
+      ],
+      "from": "component:com.shop.web.OrderController",
+      "kind": "injects",
+      "to": "component:com.shop.service.OrderServiceImpl"
+     },
+     {
+      "details": [
+       "OrderEventsListener.retryFailed"
+      ],
+      "from": "infra:scheduler",
+      "kind": "triggers",
+      "to": "component:com.shop.messaging.OrderEventsListener"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "connects",
+      "to": "broker:kafka"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "connects",
+      "to": "cache:redis:redis.internal"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.ShopApplication"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.client.InventoryClient"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.client.PaymentClient"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.config.ClientConfig"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.config.SecurityConfig"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.messaging.OrderEventsListener"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.repo.AuditDao"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.repo.OrderRepository"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.service.OrderServiceImpl"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.web.ApiErrors"
+     },
+     {
+      "details": [],
+      "from": "module:",
+      "kind": "contains",
+      "to": "component:com.shop.web.OrderController"
+     },
+     {
+      "details": [
+       "default"
+      ],
+      "from": "module:",
+      "kind": "connects",
+      "to": "datastore:postgresql:db.internal/shop"
+     }
+    ],
+    "nodes": [
+     {
+      "id": "broker:kafka",
+      "technology": "kafka",
+      "type": "broker"
+     },
+     {
+      "id": "broker:sqs",
+      "technology": "sqs",
+      "type": "broker"
+     },
+     {
+      "id": "cache::redis",
+      "module": "",
+      "technology": "redis",
+      "type": "cache"
+     },
+     {
+      "id": "cache::spring-cache",
+      "module": "",
+      "technology": "spring-cache",
+      "type": "cache"
+     },
+     {
+      "host": "redis.internal",
+      "id": "cache:redis:redis.internal",
+      "technology": "redis",
+      "type": "cache"
+     },
+     {
+      "id": "component:com.shop.ShopApplication",
+      "layer": "config",
+      "module": "",
+      "name": "ShopApplication",
+      "stereotype": "application",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.client.InventoryClient",
+      "layer": "service",
+      "module": "",
+      "name": "InventoryClient",
+      "stereotype": "component",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.client.PaymentClient",
+      "layer": "service",
+      "module": "",
+      "name": "PaymentClient",
+      "stereotype": "component",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.config.ClientConfig",
+      "layer": "config",
+      "module": "",
+      "name": "ClientConfig",
+      "stereotype": "configuration",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.config.SecurityConfig",
+      "layer": "config",
+      "module": "",
+      "name": "SecurityConfig",
+      "stereotype": "configuration",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.messaging.OrderEventsListener",
+      "layer": "service",
+      "module": "",
+      "name": "OrderEventsListener",
+      "stereotype": "component",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.repo.AuditDao",
+      "layer": "data",
+      "module": "",
+      "name": "AuditDao",
+      "stereotype": "repository",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.repo.OrderRepository",
+      "layer": "data",
+      "module": "",
+      "name": "OrderRepository",
+      "stereotype": "repository",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.service.OrderServiceImpl",
+      "layer": "service",
+      "module": "",
+      "name": "OrderServiceImpl",
+      "stereotype": "service",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.web.ApiErrors",
+      "layer": "web",
+      "module": "",
+      "name": "ApiErrors",
+      "stereotype": "controller_advice",
+      "type": "component"
+     },
+     {
+      "id": "component:com.shop.web.OrderController",
+      "layer": "web",
+      "module": "",
+      "name": "OrderController",
+      "stereotype": "rest_controller",
+      "type": "component"
+     },
+     {
+      "database": "shop",
+      "host": "db.internal",
+      "id": "datastore:postgresql:db.internal/shop",
+      "technology": "postgresql",
+      "type": "datastore"
+     },
+     {
+      "id": "external:api.payments.example.com",
+      "name": "api.payments.example.com",
+      "type": "external_service"
+     },
+     {
+      "id": "external:inventory-service",
+      "name": "inventory-service",
+      "type": "external_service"
+     },
+     {
+      "id": "infra:scheduler",
+      "technology": "spring-scheduling",
+      "type": "infrastructure"
+     },
+     {
+      "id": "module:",
+      "name": "shop-service",
+      "path": "",
+      "port": 8081,
+      "spring_boot_app": true,
+      "type": "module"
+     },
+     {
+      "id": "storage:s3",
+      "technology": "s3",
+      "type": "storage"
+     }
+    ]
+   },
+   "integrations": {
+    "async": [],
+    "caches": [
+     {
+      "command": "opsForValue.set",
+      "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+      "key": "order:{getId()}",
+      "kind": "cache",
+      "line": 29,
+      "operation": "WRITE",
+      "source": "OrderServiceImpl.create",
+      "technology": "redis"
+     },
+     {
+      "all_entries": true,
+      "cache_names": [
+       "orders"
+      ],
+      "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+      "kind": "cache",
+      "line": 18,
+      "operation": "EVICT",
+      "source": "OrderServiceImpl.create",
+      "technology": "spring-cache"
+     },
+     {
+      "cache_names": [
+       "orders"
+      ],
+      "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+      "kind": "cache",
+      "line": 33,
+      "operation": "READ_THROUGH",
+      "source": "OrderServiceImpl.get",
+      "technology": "spring-cache"
+     }
+    ],
+    "databases": [
+     {
+      "call": "JdbcTemplate.update",
+      "file": "src/main/java/com/shop/repo/AuditDao.java",
+      "kind": "database",
+      "line": 10,
+      "operation": "WRITE",
+      "query": "INSERT INTO audit_log (order_id, action) VALUES (?, ?)",
+      "source": "AuditDao.record",
+      "table": [
+       "audit_log"
+      ],
+      "technology": "jdbc"
+     },
+     {
+      "call": "OrderRepository.save",
+      "entity": "Order",
+      "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+      "kind": "database",
+      "line": 22,
+      "operation": "WRITE",
+      "repository": "OrderRepository",
+      "source": "OrderServiceImpl.create",
+      "table": [
+       "orders"
+      ],
+      "technology": "jpa"
+     },
+     {
+      "call": "OrderRepository.findById",
+      "entity": "Order",
+      "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+      "kind": "database",
+      "line": 36,
+      "operation": "READ",
+      "repository": "OrderRepository",
+      "source": "OrderServiceImpl.get",
+      "table": [
+       "orders"
+      ],
+      "technology": "jpa"
+     }
+    ],
+    "email": [],
+    "events": {
+     "listeners": [
+      {
+       "async": false,
+       "destinations": [
+        "OrderCreatedEvent"
+       ],
+       "file": "src/main/java/com/shop/messaging/OrderEventsListener.java",
+       "handler": "OrderEventsListener.notifyWarehouse",
+       "line": 18,
+       "method_id": "com.shop.messaging.OrderEventsListener#notifyWarehouse(1)",
+       "module": "",
+       "technology": "spring-event",
+       "transactional_phase": null
+      }
+     ],
+     "published": [
+      {
+       "direction": "publish",
+       "event_type": "OrderCreatedEvent",
+       "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+       "kind": "event",
+       "line": 28,
+       "source": "OrderServiceImpl.create",
+       "technology": "spring-event"
+      }
+     ]
+    },
+    "external_apis": [
+     {
+      "base_url": "http://inventory-service",
+      "client": "web_client",
+      "file": "src/main/java/com/shop/client/InventoryClient.java",
+      "host": "inventory-service",
+      "http_method": "GET",
+      "kind": "http",
+      "line": 10,
+      "response_type": "StockLevel",
+      "source": "InventoryClient.stock",
+      "url": "/stock/{sku}"
+     },
+     {
+      "client": "rest_template",
+      "file": "src/main/java/com/shop/client/PaymentClient.java",
+      "host": "api.payments.example.com",
+      "http_method": "POST",
+      "kind": "http",
+      "line": 14,
+      "response_type": "Boolean",
+      "source": "PaymentClient.charge",
+      "url": "https://api.payments.example.com/v1/charges/{id}"
+     }
+    ],
+    "feign_clients": [],
+    "messaging": {
+     "consumers": [
+      {
+       "destinations": [
+        "orders.created.v1"
+       ],
+       "file": "src/main/java/com/shop/messaging/OrderEventsListener.java",
+       "group": "invoicing",
+       "handler": "OrderEventsListener.onOrderCreated",
+       "line": 13,
+       "method_id": "com.shop.messaging.OrderEventsListener#onOrderCreated(1)",
+       "module": "",
+       "payload_type": "OrderCreatedEvent",
+       "technology": "kafka"
+      }
+     ],
+     "destinations": [
+      {
+       "consumers": [
+        "OrderEventsListener.onOrderCreated"
+       ],
+       "destination": "orders.created.v1",
+       "producers": [
+        "OrderServiceImpl.create"
+       ],
+       "technology": "kafka"
+      },
+      {
+       "consumers": [],
+       "destination": "warehouse-picking",
+       "producers": [
+        "OrderEventsListener.notifyWarehouse"
+       ],
+       "technology": "sqs"
+      }
+     ],
+     "producers": [
+      {
+       "destination": "warehouse-picking",
+       "direction": "publish",
+       "file": "src/main/java/com/shop/messaging/OrderEventsListener.java",
+       "kind": "messaging",
+       "line": 20,
+       "source": "OrderEventsListener.notifyWarehouse",
+       "technology": "sqs"
+      },
+      {
+       "destination": "orders.created.v1",
+       "direction": "publish",
+       "file": "src/main/java/com/shop/service/OrderServiceImpl.java",
+       "kind": "messaging",
+       "line": 27,
+       "payload_type": "OrderCreatedEvent",
+       "source": "OrderServiceImpl.create",
+       "technology": "kafka"
+      }
+     ]
+    },
+    "resilience": [
+     {
+      "fallback": "chargeFallback",
+      "file": "src/main/java/com/shop/client/PaymentClient.java",
+      "kind": "resilience",
+      "line": 12,
+      "name": "payments",
+      "source": "PaymentClient.charge",
+      "technology": "CircuitBreaker"
+     }
+    ],
+    "scheduled_jobs": [
+     {
+      "file": "src/main/java/com/shop/messaging/OrderEventsListener.java",
+      "handler": "OrderEventsListener.retryFailed",
+      "line": 23,
+      "method_id": "com.shop.messaging.OrderEventsListener#retryFailed(0)",
+      "module": "",
+      "schedule": {
+       "cron": "0 */5 * * * *"
+      }
+     }
+    ],
+    "search": [],
+    "storage": [
+     {
+      "bucket": "shop-invoices",
+      "call": "putObject",
+      "file": "src/main/java/com/shop/messaging/OrderEventsListener.java",
+      "kind": "storage",
+      "line": 15,
+      "operation": "WRITE",
+      "source": "OrderEventsListener.onOrderCreated",
+      "technology": "s3"
+     }
+    ]
+   },
+   "modules": [
+    {
+     "artifact": "shop-service",
+     "build_tool": "maven",
+     "client_base_urls": [
+      {
+       "base_url": "http://inventory-service",
+       "bean": "inventoryWebClient",
+       "client": "web_client",
+       "defined_in": "ClientConfig.inventoryWebClient"
+      }
+     ],
+     "config_files": [
+      "src/main/resources/application.yml"
+     ],
+     "dependencies": [
+      {
+       "artifact": "spring-boot-starter-web",
+       "category": "web",
+       "group": "org.springframework.boot",
+       "scope": "compile",
+       "technology": "Spring MVC",
+       "version": null
+      },
+      {
+       "artifact": "spring-boot-starter-data-jpa",
+       "category": "database",
+       "group": "org.springframework.boot",
+       "scope": "compile",
+       "technology": "JPA / Hibernate",
+       "version": null
+      },
+      {
+       "artifact": "postgresql",
+       "category": "database",
+       "group": "org.postgresql",
+       "scope": "runtime",
+       "technology": "PostgreSQL",
+       "version": null
+      },
+      {
+       "artifact": "spring-boot-starter-data-redis",
+       "category": "cache",
+       "group": "org.springframework.boot",
+       "scope": "compile",
+       "technology": "Redis",
+       "version": null
+      },
+      {
+       "artifact": "spring-kafka",
+       "category": "messaging",
+       "group": "org.springframework.kafka",
+       "scope": "compile",
+       "technology": "Kafka",
+       "version": null
+      },
+      {
+       "artifact": "spring-boot-starter-security",
+       "category": "security",
+       "group": "org.springframework.boot",
+       "scope": "compile",
+       "technology": "Spring Security",
+       "version": null
+      },
+      {
+       "artifact": "spring-boot-starter-webflux",
+       "category": "web",
+       "group": "org.springframework.boot",
+       "scope": "compile",
+       "technology": "Spring WebFlux / WebClient",
+       "version": null
+      },
+      {
+       "artifact": "s3",
+       "category": "storage",
+       "group": "software.amazon.awssdk",
+       "scope": "compile",
+       "technology": "AWS S3",
+       "version": "2.25.0"
+      }
+     ],
+     "description": null,
+     "endpoint_count": 4,
+     "group": "com.shop",
+     "is_spring_boot_app": true,
+     "java_version": "21",
+     "main_class": "com.shop.ShopApplication",
+     "name": "shop-service",
+     "packaging": "jar",
+     "parent": {
+      "artifact": "spring-boot-starter-parent",
+      "group": "org.springframework.boot",
+      "version": "3.3.4"
+     },
+     "path": "",
+     "profile_properties": {},
+     "properties": {
+      "inventory.url": "http://inventory-service",
+      "payments.base-url": "https://api.payments.example.com",
+      "server.port": "8081",
+      "server.servlet.context-path": "/shop",
+      "spring.application.name": "shop-service",
+      "spring.data.redis.host": "redis.internal",
+      "spring.data.redis.port": "6379",
+      "spring.datasource.password": "****",
+      "spring.datasource.url": "jdbc:postgresql://db.internal:5432/shop",
+      "spring.datasource.username": "shop",
+      "spring.kafka.bootstrap-servers": "kafka-1:9092,kafka-2:9092",
+      "storage.bucket": "shop-invoices",
+      "topics.orders": "orders.created.v1"
+     },
+     "runtime": {
+      "application_name": "shop-service",
+      "context_path": "/shop",
+      "datasources": [
+       {
+        "database": "shop",
+        "host": "db.internal",
+        "port": 5432,
+        "profile": "default",
+        "type": "postgresql",
+        "url": "jdbc:postgresql://db.internal:5432/shop"
+       }
+      ],
+      "external_urls": {
+       "inventory.url": "http://inventory-service",
+       "payments.base-url": "https://api.payments.example.com"
+      },
+      "kafka": {
+       "bootstrap_servers": "kafka-1:9092,kafka-2:9092"
+      },
+      "redis": {
+       "host": "redis.internal",
+       "port": 6379
+      },
+      "server_port": 8081
+     },
+     "spring_boot_version": "3.3.4",
+     "spring_cloud_version": null,
+     "submodules": [],
+     "technologies": [
+      "cache: Redis",
+      "database: JPA / Hibernate",
+      "database: PostgreSQL",
+      "messaging: Kafka",
+      "security: Spring Security",
+      "storage: AWS S3",
+      "web: Spring MVC",
+      "web: Spring WebFlux / WebClient"
+     ],
+     "type_counts": {
+      "application": 1,
+      "class": 1,
+      "component": 3,
+      "configuration": 2,
+      "controller_advice": 1,
+      "dto": 4,
+      "entity": 2,
+      "enum": 2,
+      "exception": 2,
+      "repository": 2,
+      "rest_controller": 1,
+      "service": 1
+     },
+     "version": "1.0.0"
+    }
+   ],
+   "security": {
+    "configured_in": [
+     "SecurityConfig.filterChain"
+    ],
+    "csrf_disabled": true,
+    "enabled": true,
+    "endpoints_with_method_security": 1,
+    "mechanisms": [
+     "jwt",
+     "oauth2-resource-server",
+     "spring-security"
+    ],
+    "technologies": [
+     "Spring Security"
+    ],
+    "url_rules": [
+     {
+      "access": "permitAll",
+      "defined_in": "SecurityConfig.filterChain",
+      "http_method": null,
+      "module": "",
+      "patterns": [
+       "/actuator/health",
+       "/api/public/**"
+      ],
+      "roles": []
+     },
+     {
+      "access": "hasRole",
+      "defined_in": "SecurityConfig.filterChain",
+      "http_method": "DELETE",
+      "module": "",
+      "patterns": [
+       "/api/orders/**"
+      ],
+      "roles": [
+       "ADMIN"
+      ]
+     },
+     {
+      "access": "authenticated",
+      "defined_in": "SecurityConfig.filterChain",
+      "http_method": null,
+      "module": "",
+      "patterns": [
+       "/**"
+      ],
+      "roles": []
+     }
+    ]
+   },
+   "summary": {
+    "architecture_style": "monolith",
+    "components": {
+     "application": 1,
+     "component": 3,
+     "configuration": 2,
+     "controller_advice": 1,
+     "repository": 2,
+     "rest_controller": 1,
+     "service": 1
+    },
+    "endpoints": 4,
+    "entities": 2,
+    "feign_clients": 0,
+    "message_listeners": 1,
+    "modules": 1,
+    "repositories": 1,
+    "scheduled_jobs": 1,
+    "spring_boot_apps": [
+     "shop-service"
+    ],
+    "technologies": {
+     "cache": [
+      "Redis"
+     ],
+     "database": [
+      "JPA / Hibernate",
+      "PostgreSQL"
+     ],
+     "messaging": [
+      "Kafka"
+     ],
+     "security": [
+      "Spring Security"
+     ],
+     "storage": [
+      "AWS S3"
+     ],
+     "web": [
+      "Spring MVC",
+      "Spring WebFlux / WebClient"
+     ]
+    },
+    "types": 22
+   }
+  }
+ },
+ "commit": "abc1234",
+ "frameworks": [
+  "spring"
+ ],
+ "repository": "spring-shop",
+ "routes": [
+  {
+   "call_graph": {
+    "direct": [
+     "OrderServiceImpl.create"
+    ],
+    "full": [
+     "OrderServiceImpl.create",
+     "PaymentClient.charge",
+     "AuditDao.record",
+     "OrderEventsListener.notifyWarehouse"
+    ],
+    "tree": {
+     "OrderController.create": {
+      "OrderServiceImpl.create": {
+       "AuditDao.record": {},
+       "OrderEventsListener.notifyWarehouse": {},
+       "PaymentClient.charge": {}
+      }
+     }
+    }
+   },
+   "calls": [
+    "create"
+   ],
+   "change_reasons": [
+    "changed model: CreateOrderRequest",
+    "changed model: LineItem",
+    "changed model: OrderResponse",
+    "changed model: PaymentMethod",
+    "changed: AuditDao.record",
+    "changed: OrderController.create",
+    "changed: OrderEventsListener.notifyWarehouse",
+    "changed: OrderService.create",
+    "changed: OrderServiceImpl.create",
+    "changed: PaymentClient.charge",
+    "uses changed repository/entity: OrderRepository"
+   ],
+   "consumes": [
+    "application/json"
+   ],
+   "context_path": "/shop",
+   "controller": "com.shop.web.OrderController",
+   "db_ops": [
+    {
+     "call": "OrderRepository.save",
+     "entity": "Order",
+     "store": "jpa",
+     "table": [
+      "orders"
+     ],
+     "type": "WRITE"
+    },
+    {
+     "call": "JdbcTemplate.update",
+     "entity": null,
+     "store": "jdbc",
+     "table": [
+      "audit_log"
+     ],
+     "type": "WRITE"
+    }
+   ],
+   "deprecated": false,
+   "description": "Places a new order.",
+   "errors": [
+    "BAD_REQUEST",
+    "PAYMENT_REQUIRED",
+    {
+     "fields": [
+      {
+       "name": "customerEmail",
+       "rule": "notEmpty"
+      },
+      {
+       "name": "customerEmail",
+       "rule": "required"
+      },
+      {
+       "name": "customerEmail",
+       "rule": "notBlank"
+      },
+      {
+       "name": "customerEmail",
+       "rule": "email"
+      },
+      {
+       "name": "lines",
+       "rule": "notEmpty"
+      },
+      {
+       "name": "lines",
+       "rule": "required"
+      },
+      {
+       "name": "lines",
+       "rule": "max"
+      }
+     ],
+     "status": 400,
+     "type": "VALIDATION_ERROR"
+    }
+   ],
+   "exceptions": [
+    {
+     "exception": "PaymentDeclinedException",
+     "mapped_by": "ApiErrors.declined",
+     "status": 402,
+     "thrown_in": "OrderServiceImpl.create"
+    }
+   ],
+   "file": "src/main/java/com/shop/web/OrderController.java",
+   "function": "create",
+   "handler": "OrderController.create",
+   "impact": [
+    "OrderServiceImpl.create",
+    "PaymentClient.charge",
+    "AuditDao.record",
+    "OrderEventsListener.notifyWarehouse"
+   ],
+   "integrations": {
+    "caches": [
+     {
+      "command": "opsForValue.set",
+      "key": "order:{getId()}",
+      "kind": "cache",
+      "line": 29,
+      "operation": "WRITE",
+      "source": "OrderServiceImpl.create",
+      "technology": "redis"
+     },
+     {
+      "all_entries": true,
+      "cache_names": [
+       "orders"
+      ],
+      "kind": "cache",
+      "line": 18,
+      "operation": "EVICT",
+      "source": "OrderServiceImpl.create",
+      "technology": "spring-cache"
+     }
+    ],
+    "databases": [
+     {
+      "call": "OrderRepository.save",
+      "entity": "Order",
+      "kind": "database",
+      "line": 22,
+      "operation": "WRITE",
+      "repository": "OrderRepository",
+      "source": "OrderServiceImpl.create",
+      "table": [
+       "orders"
+      ],
+      "technology": "jpa"
+     },
+     {
+      "call": "JdbcTemplate.update",
+      "kind": "database",
+      "line": 10,
+      "operation": "WRITE",
+      "query": "INSERT INTO audit_log (order_id, action) VALUES (?, ?)",
+      "source": "AuditDao.record",
+      "table": [
+       "audit_log"
+      ],
+      "technology": "jdbc"
+     }
+    ],
+    "events": [
+     {
+      "direction": "publish",
+      "event_type": "OrderCreatedEvent",
+      "kind": "event",
+      "line": 28,
+      "source": "OrderServiceImpl.create",
+      "technology": "spring-event"
+     }
+    ],
+    "external_apis": [
+     {
+      "client": "rest_template",
+      "host": "api.payments.example.com",
+      "http_method": "POST",
+      "kind": "http",
+      "line": 14,
+      "response_type": "Boolean",
+      "source": "PaymentClient.charge",
+      "url": "https://api.payments.example.com/v1/charges/{id}"
+     }
+    ],
+    "messaging": [
+     {
+      "destination": "orders.created.v1",
+      "direction": "publish",
+      "kind": "messaging",
+      "line": 27,
+      "payload_type": "OrderCreatedEvent",
+      "source": "OrderServiceImpl.create",
+      "technology": "kafka"
+     },
+     {
+      "destination": "warehouse-picking",
+      "direction": "publish",
+      "kind": "messaging",
+      "line": 20,
+      "source": "OrderEventsListener.notifyWarehouse",
+      "technology": "sqs"
+     }
+    ],
+    "resilience": [
+     {
+      "fallback": "chargeFallback",
+      "kind": "resilience",
+      "line": 12,
+      "name": "payments",
+      "source": "PaymentClient.charge",
+      "technology": "CircuitBreaker"
+     }
+    ],
+    "transactions": [
+     {
+      "kind": "transaction",
+      "line": 18,
+      "source": "OrderServiceImpl.create",
+      "technology": "spring-tx"
+     }
+    ]
+   },
+   "line": 13,
+   "method": "POST",
+   "module": "",
+   "params": [
+    {
+     "default": null,
+     "in": "body",
+     "name": "request",
+     "required": true,
+     "schema": {
+      "customerEmail": {
+       "type": "String",
+       "validation": {
+        "email": true,
+        "notBlank": true,
+        "notEmpty": true,
+        "required": true
+       }
+      },
+      "lines": {
+       "schema": {
+        "items": {
+         "fields": {
+          "quantity": {
+           "type": "int",
+           "validation": {
+            "minimum": 1
+           }
+          },
+          "sku": {
+           "type": "String",
+           "validation": {
+            "notBlank": true,
+            "notEmpty": true,
+            "required": true
+           }
+          }
+         },
+         "name": "LineItem",
+         "type": "object"
+        },
+        "type": "array"
+       },
+       "type": "List<LineItem>",
+       "validation": {
+        "max": 20,
+        "notEmpty": true,
+        "required": true
+       }
+      },
+      "paymentMethod": {
+       "enum": [
+        "CARD",
+        "PAYPAL"
+       ],
+       "type": "PaymentMethod"
+      }
+     },
+     "type": "CreateOrderRequest",
+     "validated": true
+    },
+    {
+     "default": null,
+     "in": "header",
+     "name": "X-Request-Id",
+     "required": true,
+     "type": "String"
+    }
+   ],
+   "path": "/api/orders",
+   "paths": [
+    "/api/orders"
+   ],
+   "produces": [],
+   "referenced_types": [
+    "com.shop.dto.CreateOrderRequest",
+    "com.shop.dto.LineItem",
+    "com.shop.dto.OrderResponse",
+    "com.shop.dto.PaymentMethod"
+   ],
+   "request_body": {
+    "required": true,
+    "schema": {
+     "customerEmail": {
+      "type": "String",
+      "validation": {
+       "email": true,
+       "notBlank": true,
+       "notEmpty": true,
+       "required": true
+      }
+     },
+     "lines": {
+      "schema": {
+       "items": {
+        "fields": {
+         "quantity": {
+          "type": "int",
+          "validation": {
+           "minimum": 1
+          }
+         },
+         "sku": {
+          "type": "String",
+          "validation": {
+           "notBlank": true,
+           "notEmpty": true,
+           "required": true
+          }
+         }
+        },
+        "name": "LineItem",
+        "type": "object"
+       },
+       "type": "array"
+      },
+      "type": "List<LineItem>",
+      "validation": {
+       "max": 20,
+       "notEmpty": true,
+       "required": true
+      }
+     },
+     "paymentMethod": {
+      "enum": [
+       "CARD",
+       "PAYPAL"
+      ],
+      "type": "PaymentMethod"
+     }
+    },
+    "type": "CreateOrderRequest",
+    "validated": true
+   },
+   "response": {
+    "body_type": "OrderResponse",
+    "schema": {
+     "id": {
+      "type": "Long"
+     },
+     "status": {
+      "type": "String"
+     }
+    },
+    "type": "OrderResponse"
+   },
+   "security": {
+    "annotations": [],
+    "url_rule": {
+     "access": "authenticated",
+     "defined_in": "SecurityConfig.filterChain",
+     "patterns": [
+      "/**"
+     ]
+    }
+   },
+   "status_codes": [
+    {
+     "code": 201,
+     "reason": "CREATED",
+     "source": "@ResponseStatus"
+    },
+    {
+     "code": 400,
+     "reason": "BAD_REQUEST",
+     "source": "bean validation"
+    },
+    {
+     "code": 402,
+     "reason": "PAYMENT_REQUIRED",
+     "source": "PaymentDeclinedException (ApiErrors.declined)"
+    }
+   ],
+   "summary": null,
+   "transactional": null
+  },
+  {
+   "call_graph": {
+    "direct": [
+     "OrderServiceImpl.get"
+    ],
+    "full": [
+     "OrderServiceImpl.get"
+    ],
+    "tree": {
+     "OrderController.get": {
+      "OrderServiceImpl.get": {}
+     }
+    }
+   },
+   "calls": [
+    "badRequest",
+    "build",
+    "get",
+    "ok"
+   ],
+   "change_reasons": [
+    "changed model: OrderResponse",
+    "changed: OrderController.get",
+    "changed: OrderService.get",
+    "changed: OrderServiceImpl.get",
+    "uses changed repository/entity: OrderRepository"
+   ],
+   "consumes": [],
+   "context_path": "/shop",
+   "controller": "com.shop.web.OrderController",
+   "db_ops": [
+    {
+     "call": "OrderRepository.findById",
+     "entity": "Order",
+     "store": "jpa",
+     "table": [
+      "orders"
+     ],
+     "type": "READ"
+    }
+   ],
+   "deprecated": false,
+   "description": "",
+   "errors": [
+    "BAD_REQUEST",
+    "NOT_FOUND"
+   ],
+   "exceptions": [
+    {
+     "exception": "OrderNotFoundException",
+     "mapped_by": "@ResponseStatus",
+     "status": 404,
+     "thrown_in": "OrderServiceImpl.get"
+    }
+   ],
+   "file": "src/main/java/com/shop/web/OrderController.java",
+   "function": "get",
+   "handler": "OrderController.get",
+   "impact": [
+    "OrderServiceImpl.get"
+   ],
+   "integrations": {
+    "caches": [
+     {
+      "cache_names": [
+       "orders"
+      ],
+      "kind": "cache",
+      "line": 33,
+      "operation": "READ_THROUGH",
+      "source": "OrderServiceImpl.get",
+      "technology": "spring-cache"
+     }
+    ],
+    "databases": [
+     {
+      "call": "OrderRepository.findById",
+      "entity": "Order",
+      "kind": "database",
+      "line": 36,
+      "operation": "READ",
+      "repository": "OrderRepository",
+      "source": "OrderServiceImpl.get",
+      "table": [
+       "orders"
+      ],
+      "technology": "jpa"
+     }
+    ]
+   },
+   "line": 20,
+   "method": "GET",
+   "module": "",
+   "params": [
+    {
+     "default": null,
+     "in": "path",
+     "name": "id",
+     "required": true,
+     "type": "Long"
+    }
+   ],
+   "path": "/api/orders/{id}",
+   "paths": [
+    "/api/orders/{id}"
+   ],
+   "produces": [],
+   "referenced_types": [
+    "com.shop.dto.OrderResponse"
+   ],
+   "request_body": null,
+   "response": {
+    "body_type": "OrderResponse",
+    "schema": {
+     "id": {
+      "type": "Long"
+     },
+     "status": {
+      "type": "String"
+     }
+    },
+    "type": "ResponseEntity<OrderResponse>"
+   },
+   "security": {
+    "annotations": [
+     {
+      "annotation": "PreAuthorize",
+      "expression": "hasRole('USER')",
+      "level": "method"
+     }
+    ],
+    "url_rule": {
+     "access": "authenticated",
+     "defined_in": "SecurityConfig.filterChain",
+     "patterns": [
+      "/**"
+     ]
+    }
+   },
+   "status_codes": [
+    {
+     "code": 200,
+     "reason": "OK",
+     "source": "ResponseEntity.ok"
+    },
+    {
+     "code": 400,
+     "reason": "BAD_REQUEST",
+     "source": "ResponseEntity.badRequest"
+    },
+    {
+     "code": 404,
+     "reason": "NOT_FOUND",
+     "source": "OrderNotFoundException (@ResponseStatus)"
+    }
+   ],
+   "summary": null,
+   "transactional": null
+  },
+  {
+   "call_graph": {
+    "direct": [],
+    "full": [],
+    "tree": {
+     "OrderController.cancel": {}
+    }
+   },
+   "calls": [],
+   "change_reasons": [
+    "changed: OrderController.cancel"
+   ],
+   "consumes": [],
+   "context_path": "/shop",
+   "controller": "com.shop.web.OrderController",
+   "db_ops": [],
+   "deprecated": false,
+   "description": "",
+   "errors": [
+    "GONE"
+   ],
+   "exceptions": [],
+   "file": "src/main/java/com/shop/web/OrderController.java",
+   "function": "cancel",
+   "handler": "OrderController.cancel",
+   "impact": [],
+   "integrations": {},
+   "line": 29,
+   "method": "DELETE",
+   "module": "",
+   "params": [
+    {
+     "default": null,
+     "in": "path",
+     "name": "id",
+     "required": true,
+     "type": "Long"
+    }
+   ],
+   "path": "/api/orders/{id}",
+   "paths": [
+    "/api/orders/{id}"
+   ],
+   "produces": [],
+   "referenced_types": [],
+   "request_body": null,
+   "response": {
+    "body_type": "void",
+    "schema": null,
+    "type": "void"
+   },
+   "security": {
+    "annotations": [],
+    "url_rule": {
+     "access": "hasRole",
+     "defined_in": "SecurityConfig.filterChain",
+     "patterns": [
+      "/api/orders/**"
+     ],
+     "roles": [
+      "ADMIN"
+     ]
+    }
+   },
+   "status_codes": [
+    {
+     "code": 200,
+     "reason": "OK",
+     "source": "default"
+    },
+    {
+     "code": 410,
+     "reason": "GONE",
+     "source": "new ResponseStatusException"
+    }
+   ],
+   "summary": null,
+   "transactional": null
+  },
+  {
+   "call_graph": {
+    "direct": [],
+    "full": [],
+    "tree": {
+     "OrderController.list": {}
+    }
+   },
+   "calls": [
+    "empty"
+   ],
+   "change_reasons": [
+    "changed model: OrderResponse",
+    "changed: OrderController.list"
+   ],
+   "consumes": [],
+   "context_path": "/shop",
+   "controller": "com.shop.web.OrderController",
+   "db_ops": [],
+   "deprecated": false,
+   "description": "",
+   "errors": [],
+   "exceptions": [],
+   "file": "src/main/java/com/shop/web/OrderController.java",
+   "function": "list",
+   "handler": "OrderController.list",
+   "impact": [],
+   "integrations": {},
+   "line": 34,
+   "method": "GET",
+   "module": "",
+   "params": [
+    {
+     "default": null,
+     "in": "query",
+     "name": "page",
+     "required": false,
+     "type": "int"
+    },
+    {
+     "default": null,
+     "in": "query",
+     "name": "size",
+     "required": false,
+     "type": "int"
+    },
+    {
+     "default": null,
+     "in": "query",
+     "name": "sort",
+     "required": false,
+     "type": "String"
+    },
+    {
+     "default": null,
+     "in": "query",
+     "name": "status",
+     "required": false,
+     "type": "OrderStatus"
+    }
+   ],
+   "path": "/api/orders",
+   "paths": [
+    "/api/orders"
+   ],
+   "produces": [],
+   "referenced_types": [
+    "com.shop.dto.OrderResponse"
+   ],
+   "request_body": null,
+   "response": {
+    "body_type": "Page<OrderResponse>",
+    "schema": {
+     "items": {
+      "fields": {
+       "id": {
+        "type": "Long"
+       },
+       "status": {
+        "type": "String"
+       }
+      },
+      "name": "OrderResponse",
+      "type": "object"
+     },
+     "type": "array"
+    },
+    "type": "Page<OrderResponse>"
+   },
+   "security": {
+    "annotations": [],
+    "url_rule": {
+     "access": "authenticated",
+     "defined_in": "SecurityConfig.filterChain",
+     "patterns": [
+      "/**"
+     ]
+    }
+   },
+   "status_codes": [
+    {
+     "code": 200,
+     "reason": "OK",
+     "source": "default"
+    }
+   ],
+   "summary": null,
+   "transactional": null
+  }
+ ],
+ "scanner_version": "2.0"
+}

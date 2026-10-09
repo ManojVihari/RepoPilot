@@ -1,0 +1,8 @@
+# Keeps the GitHub Actions used by CI current. Python dependencies are locked
+# with scripts/lock.sh (cross-platform, hashed) and checked weekly by pip-audit in CI.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

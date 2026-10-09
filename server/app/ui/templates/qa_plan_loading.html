@@ -1,0 +1,90 @@
+{% extends "_ui/api_layout.html" %}
+{% from "_ui/macros.html" import icon %}
+{% block title %}Generating QA plan · {{ api_title }}{% endblock %}
+{% block content %}
+{% set query = ('v1=' ~ v1 ~ '&' if v1 else '') ~ 'v2=' ~ v2 %}
+<div id="qa-generating" class="generating card card-body" role="status" aria-live="polite" aria-busy="true"
+     data-api-url="/api/qa-plan?repo={{ repo | urlencode }}&api={{ api | urlencode }}&{{ query }}{% if force %}&force=true{% endif %}"
+     data-done-url="/ui/{{ repo }}/{{ api }}/qa-plan?{{ query }}">
+    <div class="spinner" aria-hidden="true"></div>
+    <div>
+        <h2 id="qa-generating-title">{% if force %}Regenerating{% else %}Generating{% endif %} the test plan for v{{ v2 }}{% if v1 %} <span class="muted" style="font-weight:400">(regression from v{{ v1 }})</span>{% endif %}</h2>
+        <p class="muted" id="qa-generating-text">
+            {% if llm_enabled %}Your local Ollama model is writing test cases from this API's documentation. This usually takes under a minute; you can keep browsing and come back.
+            {% else %}Building a template plan from this API's documentation.{% endif %}
+        </p>
+        <p class="small faint" style="margin-top:8px"><span id="qa-elapsed">0s</span> elapsed</p>
+        <noscript><p><a class="btn btn-sm" href="/ui/{{ repo }}/{{ api }}/qa-plan?{{ query }}&generate=true{% if force %}&force=true{% endif %}">Generate now</a></p></noscript>
+    </div>
+</div>
+
+<div id="qa-error" hidden style="margin-top:16px">
+    <div class="callout callout-danger" role="alert">
+        {{ icon('alert') }}
+        <div>
+            <strong>The test plan could not be generated</strong>
+            <div class="small" id="qa-error-text"></div>
+            <button type="button" class="btn btn-sm" id="qa-retry" style="margin-top:10px">{{ icon('refresh') }} Try again</button>
+        </div>
+    </div>
+</div>
+
+<div class="skeleton-grid" id="qa-skeleton" aria-hidden="true">
+    <div class="skeleton" style="height:96px"></div><div class="skeleton" style="height:96px"></div><div class="skeleton" style="height:96px"></div>
+    <div class="skeleton wide" style="height:120px"></div>
+    <div class="skeleton wide" style="height:220px"></div>
+</div>
+{% endblock %}
+{% block page_scripts %}
+<script nonce="{{ request.state.csp_nonce }}">
+(function () {
+    var box = document.getElementById("qa-generating");
+    var elapsed = document.getElementById("qa-elapsed");
+    var text = document.getElementById("qa-generating-text");
+    var errorBox = document.getElementById("qa-error");
+    var skeleton = document.getElementById("qa-skeleton");
+    var started = Date.now();
+    var timer = null;
+
+    function tick() {
+        var s = Math.round((Date.now() - started) / 1000);
+        elapsed.textContent = s < 60 ? s + "s" : Math.floor(s / 60) + "m " + (s % 60) + "s";
+        if (s === 60) text.textContent = "Still working. Larger APIs and slower models can take a few minutes.";
+    }
+
+    function run() {
+        started = Date.now();
+        errorBox.hidden = true;
+        box.hidden = false;
+        skeleton.hidden = false;
+        box.setAttribute("aria-busy", "true");
+        tick();
+        timer = setInterval(tick, 1000);
+
+        fetch(box.dataset.apiUrl, {headers: {"Accept": "application/json"}})
+            .then(function (response) {
+                return response.json().then(function (body) {
+                    if (!response.ok) throw new Error(body.error || ("Server responded " + response.status));
+                    return body;
+                });
+            })
+            .then(function () {
+                document.getElementById("qa-generating-title").textContent = "Test plan ready, opening it…";
+                window.location.replace(box.dataset.doneUrl);
+            })
+            .catch(function (err) {
+                clearInterval(timer);
+                box.hidden = true;
+                skeleton.hidden = true;
+                box.setAttribute("aria-busy", "false");
+                document.getElementById("qa-error-text").textContent = err.message || "Network error";
+                errorBox.hidden = false;
+                document.getElementById("qa-retry").focus();
+            });
+    }
+
+    document.getElementById("qa-retry").addEventListener("click", run);
+    run();
+})();
+</script>
+{% endblock %}

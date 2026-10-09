@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import List, Optional,Union
+from pydantic import BaseModel, ConfigDict
+from typing import List, Optional, Union
 
 
 class Parameter(BaseModel):
@@ -10,11 +10,17 @@ class Parameter(BaseModel):
 
 
 class StatusCode(BaseModel):
+    # Spring scanner also sends source / reason
+    model_config = ConfigDict(extra="allow")
+
     code: int
-    detail: str
+    detail: Optional[str] = None
 
 
 class Route(BaseModel):
+    # Keep every field the scanner sends (integrations, security, ...)
+    model_config = ConfigDict(extra="allow")
+
     # 🔥 support both names
     function_name: Optional[str] = None
     function: Optional[str] = None
@@ -27,7 +33,9 @@ class Route(BaseModel):
     params: Optional[List[dict]] = []
 
     status_codes: Optional[List[StatusCode]] = []
-    errors: Optional[List[dict]] = []
+    # FastAPI scanner sends status codes (int), Spring sends HttpStatus
+    # names (str) and field-validation errors (dict)
+    errors: Optional[List[Union[int, str, dict]]] = []
 
     source_code: Optional[str] = ""
 
@@ -37,17 +45,25 @@ class Route(BaseModel):
     impact: Optional[List[str]] = []
     response: Optional[dict] = {}
     db_ops: Optional[List[dict]] = []
-    breaking_changes: Optional[List[dict]] = {}
+    breaking_changes: Optional[List[dict]] = []
 
 
 class AnalyzeRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     scanner_version: str
-    repository: str
+    # project the upload belongs to. Scanners 0.3+ send `project` (null when the pipeline did not
+    # name one: the API key's project is used); older scanners only send `repository`.
+    repository: Optional[str] = None
+    project: Optional[str] = None
     commit: str
 
-    # 🔥 FIX HERE
+    # older scanners send one framework, newer ones a list
     framework: Optional[str] = None
     frameworks: Optional[List[str]] = []
 
     routes: List[Route]
     metadata: Optional[dict] = {}
+
+    # application model per framework: {"spring": {...}}
+    architecture: Optional[dict] = {}

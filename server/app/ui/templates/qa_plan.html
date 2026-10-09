@@ -1,774 +1,94 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "_ui/api_layout.html" %}
+{% from "_ui/macros.html" import icon, stat, callout %}
+{% block title %}QA plan · {{ api_title }}{% endblock %}
+{% block content %}
+{% set cov = qa_plan.coverage or {} %}
+{% set tc = qa_plan.test_cases or {} %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QA Plan - {{ api }} v{{ v2 }} - DocAI</title>
-
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-        
-        * {
-            font-family: 'Inter', sans-serif;
-        }
-        
-        h1, h2, h3, h4 {
-            font-family: 'Poppins', sans-serif;
-        }
-
-        code, pre {
-            font-family: 'JetBrains Mono', monospace;
-        }
-
-        .gradient-bg {
-            background: linear-gradient(135deg, #1e40af 0%, #0369a1 100%);
-        }
-
-        .coverage-score {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-        }
-
-        .score-bar {
-            height: 8px;
-            background: #e5e7eb;
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 8px 0;
-        }
-
-        .score-fill {
-            height: 100%;
-            border-radius: 4px;
-            transition: width 0.3s ease;
-        }
-
-        .score-excellent { background: #10b981; }
-        .score-good { background: #3b82f6; }
-        .score-fair { background: #f59e0b; }
-        .score-poor { background: #ef4444; }
-
-        .test-category {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-
-        .test-case {
-            background: white;
-            border-left: 4px solid #3b82f6;
-            padding: 12px 16px;
-            margin: 8px 0;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-
-        .test-case-happy {
-            border-left-color: #10b981;
-        }
-
-        .test-case-error {
-            border-left-color: #ef4444;
-        }
-
-        .test-case-security {
-            border-left-color: #f59e0b;
-        }
-
-        .test-case-edge {
-            border-left-color: #8b5cf6;
-        }
-
-        .test-case-perf {
-            border-left-color: #06b6d4;
-        }
-
-        .checklist-item {
-            display: flex;
-            align-items: flex-start;
-            padding: 12px 0;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        .checklist-item:last-child {
-            border-bottom: none;
-        }
-
-        .checkbox-icon {
-            width: 20px;
-            height: 20px;
-            border: 2px solid #cbd5e1;
-            border-radius: 4px;
-            margin-right: 12px;
-            margin-top: 2px;
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .recommendation {
-            background: #fef3c7;
-            border-left: 4px solid #f59e0b;
-            padding: 12px 16px;
-            margin: 8px 0;
-            border-radius: 4px;
-            display: flex;
-            gap: 12px;
-        }
-
-        .recommendation.positive {
-            background: #d1fae5;
-            border-left-color: #10b981;
-        }
-
-        .breaking-change-badge {
-            display: inline-block;
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-            margin-right: 8px;
-        }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease-in;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .stat-card {
-            background: linear-gradient(135deg, #1e40af 0%, #0369a1 100%);
-            color: white;
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 32px;
-            font-weight: 700;
-            margin: 10px 0;
-        }
-
-        .stat-label {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-
-        /* Loader Styles */
-        .loader-container {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.97) 0%, rgba(240, 249, 255, 0.97) 100%);
-            z-index: 9999;
-            backdrop-filter: blur(3px);
-        }
-
-        .loader-container.hidden {
-            display: none;
-        }
-
-        .spinner {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 24px;
-            text-align: center;
-        }
-
-        .spinner-ring {
-            position: relative;
-            width: 70px;
-            height: 70px;
-        }
-
-        .spinner-ring::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: 4px solid #e5e7eb;
-            border-radius: 50%;
-        }
-
-        .spinner-ring::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: 4px solid transparent;
-            border-top-color: #3b82f6;
-            border-right-color: #06b6d4;
-            border-radius: 50%;
-            animation: spin 1.2s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .spinner-text {
-            font-size: 16px;
-            color: #1e293b;
-            font-weight: 600;
-            min-height: 24px;
-            animation: fadeInOut 1.5s ease-in-out infinite;
-        }
-
-        .spinner-subtext {
-            font-size: 13px;
-            color: #64748b;
-            font-weight: 400;
-            min-height: 20px;
-        }
-
-        .spinner-dots {
-            font-size: 16px;
-            letter-spacing: 4px;
-            color: #3b82f6;
-            animation: dots 1.5s steps(4, end) infinite;
-        }
-
-        @keyframes fadeInOut {
-            0%, 100% { opacity: 0.6; }
-            50% { opacity: 1; }
-        }
-
-        @keyframes dots {
-            0%, 20% { content: ''; }
-            40% { content: '·'; }
-            60% { content: '· ·'; }
-            80%, 100% { content: '· · ·'; }
-        }
-
-        .progress-bar {
-            width: 200px;
-            height: 4px;
-            background: #e5e7eb;
-            border-radius: 2px;
-            overflow: hidden;
-            margin-top: 8px;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #3b82f6, #06b6d4);
-            border-radius: 2px;
-            animation: progress 2.5s ease-in-out infinite;
-        }
-
-        @keyframes progress {
-            0% { width: 0%; }
-            50% { width: 75%; }
-            100% { width: 95%; }
-        }
-    </style>
-
-    <script>
-        const loadingMessages = [
-            { text: '✨ Analyzing your API documentation', sub: 'Understanding endpoints and parameters...' },
-            { text: '🧪 Generating test scenarios', sub: 'Creating happy path tests...' },
-            { text: '🔍 Crafting edge cases', sub: 'Finding boundary conditions...' },
-            { text: '🛡️  Building security tests', sub: 'Testing for vulnerabilities...' },
-            { text: '⚡ Optimizing performance checks', sub: 'Designing load tests...' },
-            { text: '📊 Calculating coverage scores', sub: 'Analyzing test completeness...' },
-            { text: '🎯 Finalizing QA plan', sub: 'Preparing your plan...' }
-        ];
-
-        let messageIndex = 0;
-        let messageInterval = null;
-
-        function updateLoaderMessage() {
-            const msg = loadingMessages[messageIndex % loadingMessages.length];
-            const textEl = document.querySelector('.spinner-text');
-            const subtextEl = document.querySelector('.spinner-subtext');
-            
-            if (textEl) {
-                textEl.textContent = msg.text;
-                textEl.style.animation = 'none';
-                setTimeout(() => { textEl.style.animation = 'fadeInOut 1.5s ease-in-out infinite'; }, 10);
-            }
-            if (subtextEl) {
-                subtextEl.textContent = msg.sub;
-            }
-            
-            messageIndex++;
-        }
-
-        window.addEventListener('load', () => {
-            if (messageInterval) clearInterval(messageInterval);
-            const loader = document.getElementById('loader');
-            if (loader) setTimeout(() => loader.classList.add('hidden'), 300);
-        });
-
-        function regenerateQAPlan() {
-            // Show loader
-            const loader = document.getElementById('loader');
-            if (loader) {
-                loader.classList.remove('hidden');
-                messageIndex = 0;
-                updateLoaderMessage();
-                
-                // Cycle through messages every 1.5 seconds
-                if (messageInterval) clearInterval(messageInterval);
-                messageInterval = setInterval(updateLoaderMessage, 1500);
-            }
-            
-            // Reload with force=true parameter
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('force', 'true');
-            window.location.href = currentUrl.toString();
-        }
-
-        // Start message cycling on page load if still loading
-        document.addEventListener('DOMContentLoaded', () => {
-            const loader = document.getElementById('loader');
-            if (loader && !loader.classList.contains('hidden')) {
-                messageIndex = 0;
-                updateLoaderMessage();
-                if (messageInterval) clearInterval(messageInterval);
-                messageInterval = setInterval(updateLoaderMessage, 1500);
-            }
-        });
-    </script>
-</head>
-
-<body class="bg-slate-50">
-
-<!-- Loader Overlay -->
-<div id="loader" class="loader-container">
-    <div class="spinner">
-        <div class="spinner-ring"></div>
-        <div class="spinner-text">✨ Analyzing your API documentation</div>
-        <div class="spinner-subtext">Understanding endpoints and parameters...</div>
-        <div class="progress-bar">
-            <div class="progress-fill"></div>
-        </div>
+<div class="page-header" style="margin-bottom:16px">
+    <div>
+        <h2 style="font-size:1.2rem">Test plan for v{{ v2 }}{% if v1 %} <span class="muted" style="font-weight:400">(regression from v{{ v1 }})</span>{% endif %}</h2>
+        {% if plan_generated_at %}<p class="small muted" style="margin-top:4px">Generated {{ plan_generated_at[:16] | replace('T', ' ') }} UTC{% if is_cached %} · cached{% endif %}</p>{% endif %}
+    </div>
+    <div class="row no-print">
+        {% if request.state.user.is_admin %}<a class="btn btn-sm" href="/ui/{{ repo }}/{{ api }}/qa-plan?{% if v1 %}v1={{ v1 }}&{% endif %}v2={{ v2 }}&force=true">{{ icon('refresh') }} Regenerate</a>{% endif %}
+        <button class="btn btn-sm btn-ghost" type="button" data-print>{{ icon('printer') }} Print</button>
     </div>
 </div>
 
-<!-- Navigation -->
-<div class="bg-white border-b border-slate-200 sticky top-0 z-40">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div class="flex items-center gap-2">
-            <a href="/ui" class="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1">
-                <i class="fas fa-home"></i> Home
-            </a>
-            <span class="text-slate-400">/</span>
-            <a href="/ui/{{ repo }}" class="text-blue-600 hover:text-blue-700 text-sm">{{ repo }}</a>
-            <span class="text-slate-400">/</span>
-            <a href="/ui/{{ repo }}/{{ api }}" class="text-blue-600 hover:text-blue-700 text-sm">{{ api }}</a>
-            <span class="text-slate-400">/</span>
-            <span class="text-slate-600 text-sm font-semibold">QA Plan</span>
-        </div>
-        <a href="/ui/{{ repo }}/{{ api }}" class="text-slate-600 hover:text-slate-900 text-sm flex items-center gap-2">
-            <i class="fas fa-arrow-left"></i> Back to API
-        </a>
-    </div>
+{% if qa_plan.is_template %}
+<div style="margin-bottom:20px">{{ callout('info', 'Generic template plan', 'Ollama was not reachable, so this is a template. Start Ollama, then an admin can regenerate a plan written from this API’s documentation.') }}</div>
+{% endif %}
+
+<div class="grid grid-stats" style="margin-bottom:24px">
+    {{ stat('Coverage score', (cov.overall_score or 0) ~ '%') }}
+    {{ stat('Test cases', cov.total_test_count or 0) }}
+    {{ stat('Estimated effort', ((qa_plan.checklist or {}).estimated_testing_hours or 0) | round(1) ~ ' h') }}
 </div>
 
-<!-- Main Content -->
-<div class="max-w-7xl mx-auto px-4 py-8">
-
-    <!-- Header -->
-    <div class="mb-8 fade-in">
-        <div class="flex items-center justify-between mb-4">
+<div class="stack-lg">
+    <section aria-labelledby="coverage-title">
+        <h3 id="coverage-title" style="margin-bottom:12px">Coverage</h3>
+        <div class="card card-body grid grid-2" style="gap:14px 28px">
+            {% for label, key in [('Happy path', 'happy_path_score'), ('Errors', 'error_coverage_score'), ('Security', 'security_coverage_score'), ('Edge cases', 'edge_case_score')] %}
+            {% set value = cov[key] or 0 %}
             <div>
-                <h1 class="text-4xl font-bold text-slate-900 mb-2">QA Test Plan</h1>
-                <p class="text-slate-600">
-                    <strong>API:</strong> {{ api }} 
-                    <span class="text-slate-400 mx-2">|</span>
-                    <strong>Repository:</strong> {{ repo }}
-                    <span class="text-slate-400 mx-2">|</span>
-                    <strong>Version:</strong> v{{ v2 }}
-                    {% if v1 %}<span class="text-slate-400 mx-2">|</span>
-                    <strong>Upgrade From:</strong> v{{ v1 }}{% endif %}
-                </p>
-            </div>
-            <div class="flex gap-3">
-                {% if qa_plan.is_version_upgrade %}
-                <a href="/ui/{{ repo }}/{{ api }}/diff?v1={{ v1 }}&v2={{ v2 }}" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm flex items-center gap-2">
-                    <i class="fas fa-code-branch"></i> View Diff
-                </a>
-                {% endif %}
-                {% if qa_plan.is_template %}
-                <button onclick="regenerateQAPlan()" class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 text-sm flex items-center gap-2">
-                    <i class="fas fa-sync-alt"></i> Regenerate
-                </button>
-                {% endif %}
-                <button onclick="window.print()" class="px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 text-sm flex items-center gap-2">
-                    <i class="fas fa-print"></i> Print
-                </button>
-            </div>
-        </div>
-        
-        <!-- Template Banner -->
-        {% if qa_plan.is_template %}
-        <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-3">
-            <i class="fas fa-info-circle text-blue-600 text-lg mt-0.5 flex-shrink-0"></i>
-            <div>
-                <p class="text-blue-900 font-semibold text-sm">Template QA Plan</p>
-                <p class="text-blue-800 text-xs mt-1">
-                    This is a template example. For AI-powered test generation with specific scenarios based on your API documentation, 
-                    <a href="https://ollama.ai" target="_blank" class="underline font-semibold">start Ollama</a>: 
-                    <code class="bg-blue-100 px-2 py-1 rounded text-xs">ollama serve</code>
-                    <br>
-                    <span class="mt-2 inline-block">Once Ollama is running, click the <strong>Regenerate</strong> button above to generate an AI-powered plan.</span>
-                </p>
-            </div>
-        </div>
-        {% endif %}
-        
-        <!-- Cached Status Banner -->
-        {% if is_cached %}
-        <div class="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-start gap-3">
-            <i class="fas fa-check-circle text-green-600 text-lg mt-0.5 flex-shrink-0"></i>
-            <div>
-                <p class="text-green-900 font-semibold text-sm">Cached QA Plan</p>
-                <p class="text-green-800 text-xs mt-1">
-                    This QA plan was generated on 
-                    <strong>{{ plan_generated_at.split('T')[0] }} at {{ plan_generated_at.split('T')[1][:5] }} UTC</strong>
-                    and cached for fast loading. It will be regenerated when the API documentation changes.
-                </p>
-            </div>
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Coverage Summary -->
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-        <div class="stat-card">
-            <div class="stat-label">Overall Score</div>
-            <div class="stat-value">{{ qa_plan.coverage.overall_score }}%</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Total Tests</div>
-            <div class="stat-value">{{ qa_plan.coverage.total_test_count }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Happy Path</div>
-            <div class="stat-value">{{ qa_plan.coverage.breakdown.happy_path }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Error Cases</div>
-            <div class="stat-value">{{ qa_plan.coverage.breakdown.error_cases }}</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-label">Security Tests</div>
-            <div class="stat-value">{{ qa_plan.coverage.breakdown.security }}</div>
-        </div>
-    </div>
-
-    <!-- Coverage Breakdown -->
-    <div class="bg-white rounded-lg shadow-sm p-6 mb-8">
-        <h2 class="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <i class="fas fa-chart-pie text-blue-600"></i> Coverage Analysis
-        </h2>
-
-        <!-- Coverage Scores -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="coverage-score bg-blue-50 border border-blue-200">
-                <div>
-                    <div class="font-semibold text-slate-900">Happy Path Coverage</div>
-                    <div class="text-sm text-slate-600">Core functionality tests</div>
-                </div>
-                <div class="text-2xl font-bold text-blue-600">{{ qa_plan.coverage.happy_path_score }}%</div>
-            </div>
-
-            <div class="coverage-score bg-red-50 border border-red-200">
-                <div>
-                    <div class="font-semibold text-slate-900">Error Coverage</div>
-                    <div class="text-sm text-slate-600">Error handling & edge cases</div>
-                </div>
-                <div class="text-2xl font-bold text-red-600">{{ qa_plan.coverage.error_coverage_score }}%</div>
-            </div>
-
-            <div class="coverage-score bg-amber-50 border border-amber-200">
-                <div>
-                    <div class="font-semibold text-slate-900">Security Coverage</div>
-                    <div class="text-sm text-slate-600">Security & vulnerability tests</div>
-                </div>
-                <div class="text-2xl font-bold text-amber-600">{{ qa_plan.coverage.security_coverage_score }}%</div>
-            </div>
-
-            <div class="coverage-score bg-purple-50 border border-purple-200">
-                <div>
-                    <div class="font-semibold text-slate-900">Edge Case Coverage</div>
-                    <div class="text-sm text-slate-600">Boundary & special scenarios</div>
-                </div>
-                <div class="text-2xl font-bold text-purple-600">{{ qa_plan.coverage.edge_case_score }}%</div>
-            </div>
-        </div>
-
-        <!-- Recommendations -->
-        <div class="mt-6 pt-6 border-t border-slate-200">
-            <h3 class="font-semibold text-slate-900 mb-4">Recommendations</h3>
-            {% for rec in qa_plan.coverage.recommendations %}
-            <div class="recommendation {% if rec.startswith('✅') %}positive{% endif %}">
-                <div class="flex-shrink-0">
-                    {% if rec.startswith('✅') %}
-                        <i class="fas fa-check-circle text-green-600 text-lg"></i>
-                    {% elif rec.startswith('⚠️') %}
-                        <i class="fas fa-exclamation-circle text-amber-600 text-lg"></i>
-                    {% else %}
-                        <i class="fas fa-info-circle text-blue-600 text-lg"></i>
-                    {% endif %}
-                </div>
-                <div class="text-sm text-slate-700">{{ rec }}</div>
+                <div class="row" style="justify-content:space-between"><span class="small">{{ label }}</span><span class="small muted">{{ value }}%</span></div>
+                <div class="progress" role="progressbar" aria-label="{{ label }} coverage" aria-valuenow="{{ value }}" aria-valuemin="0" aria-valuemax="100"><span style="width:{{ value }}%"></span></div>
             </div>
             {% endfor %}
         </div>
-    </div>
-
-    <!-- Test Cases -->
-    <div class="bg-white rounded-lg shadow-sm p-6 mb-8">
-        <h2 class="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <i class="fas fa-tasks text-blue-600"></i> Test Cases ({{ qa_plan.coverage.total_test_count }} Total)
-        </h2>
-
-        <!-- Happy Path Tests -->
-        {% if qa_plan.test_cases.happy_path %}
-        <div class="test-category">
-            <h3 class="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-check-circle text-green-600"></i> Happy Path Tests
-                <span class="text-sm font-normal text-slate-600 bg-green-100 px-2 py-1 rounded">{{ qa_plan.test_cases.happy_path|length }} tests</span>
-            </h3>
-            {% for test in qa_plan.test_cases.happy_path %}
-            <div class="test-case test-case-happy">
-                <i class="fas fa-check text-green-600 mr-3 mt-1"></i>
-                <span>{{ test }}</span>
-            </div>
-            {% endfor %}
-        </div>
+        {% if cov.recommendations %}
+        <ul class="list card small" style="margin-top:12px">
+            {% for rec in cov.recommendations %}<li>{{ rec }}</li>{% endfor %}
+        </ul>
         {% endif %}
+    </section>
 
-        <!-- Edge Cases -->
-        {% if qa_plan.test_cases.edge_cases %}
-        <div class="test-category">
-            <h3 class="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-border-all text-purple-600"></i> Edge Cases
-                <span class="text-sm font-normal text-slate-600 bg-purple-100 px-2 py-1 rounded">{{ qa_plan.test_cases.edge_cases|length }} tests</span>
-            </h3>
-            {% for test in qa_plan.test_cases.edge_cases %}
-            <div class="test-case test-case-edge">
-                <i class="fas fa-exclamation text-purple-600 mr-3 mt-1"></i>
-                <span>{{ test }}</span>
-            </div>
-            {% endfor %}
-        </div>
+    <section aria-labelledby="cases-title">
+        <h3 id="cases-title" style="margin-bottom:12px">Test cases</h3>
+        {% for key, label in [('happy_path', 'Happy path'), ('error_cases', 'Error cases'), ('edge_cases', 'Edge cases'), ('security_tests', 'Security'), ('performance_tests', 'Performance')] %}
+        {% if tc[key] %}
+        <details class="disclosure" {% if loop.first %}open{% endif %}>
+            <summary>{{ label }} <span class="badge">{{ tc[key] | length }}</span></summary>
+            <div class="disclosure-body"><ol class="small" style="margin:0;padding-left:18px">{% for t in tc[key] %}<li style="margin:4px 0">{{ t }}</li>{% endfor %}</ol></div>
+        </details>
         {% endif %}
+        {% endfor %}
+    </section>
 
-        <!-- Error Cases -->
-        {% if qa_plan.test_cases.error_cases %}
-        <div class="test-category">
-            <h3 class="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-times-circle text-red-600"></i> Error Cases
-                <span class="text-sm font-normal text-slate-600 bg-red-100 px-2 py-1 rounded">{{ qa_plan.test_cases.error_cases|length }} tests</span>
-            </h3>
-            {% for test in qa_plan.test_cases.error_cases %}
-            <div class="test-case test-case-error">
-                <i class="fas fa-times text-red-600 mr-3 mt-1"></i>
-                <span>{{ test }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- Security Tests -->
-        {% if qa_plan.test_cases.security_tests %}
-        <div class="test-category">
-            <h3 class="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-shield-alt text-amber-600"></i> Security Tests
-                <span class="text-sm font-normal text-slate-600 bg-amber-100 px-2 py-1 rounded">{{ qa_plan.test_cases.security_tests|length }} tests</span>
-            </h3>
-            {% for test in qa_plan.test_cases.security_tests %}
-            <div class="test-case test-case-security">
-                <i class="fas fa-lock text-amber-600 mr-3 mt-1"></i>
-                <span>{{ test }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- Performance Tests -->
-        {% if qa_plan.test_cases.performance_tests %}
-        <div class="test-category">
-            <h3 class="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-tachometer-alt text-cyan-600"></i> Performance Tests
-                <span class="text-sm font-normal text-slate-600 bg-cyan-100 px-2 py-1 rounded">{{ qa_plan.test_cases.performance_tests|length }} tests</span>
-            </h3>
-            {% for test in qa_plan.test_cases.performance_tests %}
-            <div class="test-case test-case-perf">
-                <i class="fas fa-bolt text-cyan-600 mr-3 mt-1"></i>
-                <span>{{ test }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-    </div>
-
-    <!-- Regression Tests (if upgrading) -->
     {% if qa_plan.regression_plan %}
-    <div class="bg-white rounded-lg shadow-sm p-6 mb-8">
-        <h2 class="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <i class="fas fa-code-branch text-blue-600"></i> Regression Testing (v{{ v1 }} → v{{ v2 }})
-        </h2>
-
-        <!-- Breaking Changes -->
-        {% if qa_plan.regression_plan.breaking_changes %}
-        <div class="test-category bg-red-50 border-l-4 border-red-500 mb-6">
-            <h3 class="font-bold text-red-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-exclamation-triangle text-red-600"></i> Breaking Changes
-                <span class="text-sm font-normal text-red-700 bg-red-200 px-2 py-1 rounded">{{ qa_plan.regression_plan.breaking_changes|length }} detected</span>
-            </h3>
-            {% for change in qa_plan.regression_plan.breaking_changes %}
-            <div class="bg-white p-3 rounded mb-2 border-l-4 border-red-500">
-                <div class="breaking-change-badge">BREAKING</div>
-                <span class="text-sm text-slate-700">{{ change }}</span>
-            </div>
-            {% endfor %}
-        </div>
+    {% set rp = qa_plan.regression_plan %}
+    <section aria-labelledby="regression-title">
+        <h3 id="regression-title" style="margin-bottom:12px">Regression v{{ v1 }} → v{{ v2 }}</h3>
+        {% for key, label in [('breaking_changes', 'Breaking changes'), ('backward_compatibility_tests', 'Backward compatibility'), ('new_feature_tests', 'New behaviour'), ('dependent_api_impact', 'Dependent services'), ('regression_risks', 'Risk areas')] %}
+        {% if rp[key] %}
+        <details class="disclosure" {% if key == 'breaking_changes' %}open{% endif %}>
+            <summary>{{ label }} <span class="badge {{ 'badge-danger' if key == 'breaking_changes' else '' }}">{{ rp[key] | length }}</span></summary>
+            <div class="disclosure-body"><ul class="small" style="margin:0;padding-left:18px">{% for t in rp[key] %}<li style="margin:4px 0">{{ t }}</li>{% endfor %}</ul></div>
+        </details>
         {% endif %}
-
-        <!-- Backward Compatibility Tests -->
-        {% if qa_plan.regression_plan.backward_compatibility_tests %}
-        <div class="test-category mb-6">
-            <h3 class="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-arrow-down text-blue-600"></i> Backward Compatibility
-                <span class="text-sm font-normal text-slate-600 bg-blue-100 px-2 py-1 rounded">{{ qa_plan.regression_plan.backward_compatibility_tests|length }} tests</span>
-            </h3>
-            {% for test in qa_plan.regression_plan.backward_compatibility_tests %}
-            <div class="test-case">
-                <i class="fas fa-check text-blue-600 mr-3 mt-1"></i>
-                <span>{{ test }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- New Feature Tests -->
-        {% if qa_plan.regression_plan.new_feature_tests %}
-        <div class="test-category mb-6">
-            <h3 class="font-bold text-slate-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-sparkles text-green-600"></i> New Feature Tests
-                <span class="text-sm font-normal text-slate-600 bg-green-100 px-2 py-1 rounded">{{ qa_plan.regression_plan.new_feature_tests|length }} tests</span>
-            </h3>
-            {% for test in qa_plan.regression_plan.new_feature_tests %}
-            <div class="test-case">
-                <i class="fas fa-plus text-green-600 mr-3 mt-1"></i>
-                <span>{{ test }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- Dependent API Impact -->
-        {% if qa_plan.regression_plan.dependent_api_impact %}
-        <div class="test-category mb-6 bg-amber-50 border-l-4 border-amber-500">
-            <h3 class="font-bold text-amber-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-sitemap text-amber-600"></i> Dependent Service Impact
-                <span class="text-sm font-normal text-amber-700 bg-amber-200 px-2 py-1 rounded">{{ qa_plan.regression_plan.dependent_api_impact|length }} items</span>
-            </h3>
-            {% for item in qa_plan.regression_plan.dependent_api_impact %}
-            <div class="bg-white p-3 rounded mb-2 border-l-4 border-amber-500">
-                <span class="text-sm text-slate-700">{{ item }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        <!-- Regression Risks -->
-        {% if qa_plan.regression_plan.regression_risks %}
-        <div class="test-category bg-orange-50 border-l-4 border-orange-500">
-            <h3 class="font-bold text-orange-900 text-lg mb-4 flex items-center gap-2">
-                <i class="fas fa-fire text-orange-600"></i> Risk Areas
-                <span class="text-sm font-normal text-orange-700 bg-orange-200 px-2 py-1 rounded">{{ qa_plan.regression_plan.regression_risks|length }} identified</span>
-            </h3>
-            {% for risk in qa_plan.regression_plan.regression_risks %}
-            <div class="bg-white p-3 rounded mb-2 border-l-4 border-orange-500">
-                <span class="text-sm text-slate-700">{{ risk }}</span>
-            </div>
-            {% endfor %}
-        </div>
-        {% endif %}
-    </div>
+        {% endfor %}
+    </section>
     {% endif %}
 
-    <!-- QA Execution Checklist -->
-    <div class="bg-white rounded-lg shadow-sm p-6 mb-8">
-        <h2 class="text-2xl font-bold text-slate-900 mb-6 flex items-center gap-2">
-            <i class="fas fa-clipboard-check text-blue-600"></i> QA Execution Checklist
-        </h2>
-
-        <p class="text-slate-600 mb-6">
-            <strong>Estimated Testing Time:</strong> {{ qa_plan.checklist.estimated_testing_hours|round(1) }} hours
-        </p>
-
+    {% if qa_plan.checklist and qa_plan.checklist.checklist %}
+    <section aria-labelledby="checklist-title">
+        <h3 id="checklist-title" style="margin-bottom:12px">Execution checklist</h3>
+        <div class="grid grid-2">
         {% for category in qa_plan.checklist.checklist %}
-        <div class="test-category">
-            <h3 class="font-bold text-slate-900 mb-4">{{ category.category }}</h3>
-            <div class="space-y-3">
+            {% set outer = loop.index %}
+            <fieldset class="card card-body" style="margin:0">
+                <legend class="small" style="font-weight:600;padding:0 4px">{{ category.category }}</legend>
+                <ul class="checklist small">
                 {% for item in category['items'] %}
-                <div class="checklist-item">
-                    <div class="checkbox-icon">
-                        <input type="checkbox" class="w-4 h-4" />
-                    </div>
-                    <span class="text-slate-700">{{ item }}</span>
-                </div>
+                    <li><input type="checkbox" id="chk-{{ outer }}-{{ loop.index }}"><label for="chk-{{ outer }}-{{ loop.index }}" style="font-weight:400">{{ item }}</label></li>
                 {% endfor %}
-            </div>
-        </div>
+                </ul>
+            </fieldset>
         {% endfor %}
-    </div>
-
-    <!-- Footer -->
-    <div class="text-center text-slate-600 py-8 border-t border-slate-200">
-        <p class="text-sm">
-            <strong>DocAI QA Plan Generator</strong> • Auto-generated test plan for comprehensive API coverage
-        </p>
-        <p class="text-xs mt-2 text-slate-500">
-            Auto-generated on request
-        </p>
-    </div>
-
+        </div>
+    </section>
+    {% endif %}
 </div>
-
-<script>
-    // Print styling
-    @media print {
-        .no-print { display: none; }
-        body { background: white; }
-        .bg-slate-50 { background: white; }
-    }
-</script>
-
-</body>
-
-</html>
+{% endblock %}

@@ -1,0 +1,213 @@
+{% extends "_ui/base.html" %}
+{% from "_ui/macros.html" import icon, callout %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <div class="eyebrow">Settings</div>
+        <h1>{{ {'profile': 'Profile & password', 'keys': 'API keys', 'users': 'Users'}[tab] }}</h1>
+    </div>
+</div>
+
+<nav class="tabs" aria-label="Settings" style="margin-bottom:24px">
+    <a href="/settings" {% if tab == 'profile' %}aria-current="page"{% endif %}>{{ icon('user') }} Profile</a>
+    <a href="/settings/api-keys" {% if tab == 'keys' %}aria-current="page"{% endif %}>{{ icon('key') }} API keys</a>
+    {% if me.is_admin %}<a href="/settings/users" {% if tab == 'users' %}aria-current="page"{% endif %}>{{ icon('users') }} Users</a>{% endif %}
+</nav>
+
+{% if error %}<div style="margin-bottom:20px">{{ callout('danger', error) }}</div>{% endif %}
+
+{% if tab == 'profile' %}
+<div class="settings-grid">
+    <section class="card card-body" aria-labelledby="me-title">
+        <h2 id="me-title" class="small">Your account</h2>
+        <dl class="kv">
+            <dt>Name</dt><dd>{{ me.name }}</dd>
+            <dt>Email</dt><dd>{{ me.email }}</dd>
+            <dt>Role</dt><dd><span class="badge role-{{ me.role }}">{{ me.role }}</span>
+                <div class="xs muted" style="margin-top:4px">{% if me.is_admin %}Can upload scans, regenerate QA plans, manage templates, users and API keys.{% else %}Can read everything. Ask an admin for upload rights.{% endif %}</div></dd>
+        </dl>
+    </section>
+
+    <section class="card card-body" aria-labelledby="pw-title">
+        <h2 id="pw-title" class="small">Change password</h2>
+        {% if must_change %}<div style="margin:8px 0 12px">{{ callout('warn', 'Choose your own password', 'You signed in with a temporary password. Set a new one to continue.') }}</div>{% endif %}
+        {% if request.query_params.get('saved') == 'password' %}<div style="margin:8px 0 12px">{{ callout('ok', 'Password changed', 'Other sessions were signed out.') }}</div>{% endif %}
+        <form method="post" action="/settings/password" class="stack">
+            <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+            <div class="field"><label for="current">Current password</label><input id="current" name="current" type="password" autocomplete="current-password" required></div>
+            <div class="field"><label for="password">New password</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required aria-describedby="pw-hint"><span class="xs muted" id="pw-hint">At least 10 characters.</span></div>
+            <div class="field"><label for="confirm">Repeat the new password</label><input id="confirm" name="confirm" type="password" autocomplete="new-password" minlength="10" required></div>
+            <div><button class="btn btn-primary" type="submit">Change password</button></div>
+        </form>
+    </section>
+</div>
+
+{% elif tab == 'keys' %}
+<p class="muted" style="max-width:75ch;margin-bottom:20px">
+    Scanners and scripts sign in with an API key. A key acts with your role
+    (<span class="badge role-{{ me.role }}">{{ me.role }}</span>){% if not me.is_admin %}: viewer keys can read the API but cannot upload scans{% else %}: your keys can upload scans{% endif %}.
+    Revoke a key as soon as it is no longer needed.
+</p>
+
+{% if new_key %}
+{% set server_url = request.base_url | string | trim('/') %}
+<section class="card card-body new-key" aria-labelledby="new-key-title" style="margin-bottom:24px">
+    <h2 id="new-key-title" class="small">{{ icon('check-circle') }} New key “{{ new_key.name }}”{% if new_key.project %} for project <code>{{ new_key.project }}</code>{% endif %}</h2>
+    <p class="small">Copy it now: it is shown only once and cannot be retrieved later. Store it as a secret in your CI system.</p>
+    <div class="copy-row">
+        <code id="new-key-value">{{ new_key.key }}</code>
+        <button class="btn btn-sm" type="button" data-copy="new-key-value">Copy</button>
+    </div>
+    <p class="xs muted" style="margin:14px 0 4px">Add this step to the pipeline (for example after a merge to main):</p>
+    <pre class="snippet"><code id="new-key-snippet">pip install mergeclear
+export MERGECLEAR_SERVER={{ server_url }}       # required
+export MERGECLEAR_API_KEY=&lt;this key, from your CI secrets&gt;   # required
+mergeclear scan --commit "$COMMIT_SHA"{% if not new_key.project %} --project &lt;project-name&gt;{% endif %} --push --wait</code></pre>
+    <p class="xs muted" style="margin:6px 0 0">{% if new_key.project %}Uploads go to <strong>{{ new_key.project }}</strong>; add <code>--project &lt;name&gt;</code> to send one to another project.{% else %}This key has no default project, so every upload must name one with <code>--project</code> (or <code>MERGECLEAR_PROJECT</code>).{% endif %}</p>
+</section>
+{% endif %}
+
+<form method="post" action="/settings/api-keys" class="card card-body inline-form" style="margin-bottom:24px" aria-labelledby="create-key-title">
+    <h2 id="create-key-title" class="small" style="width:100%">Create a key</h2>
+    <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+    <div class="field" style="flex:1;min-width:220px">
+        <label for="key-name">Key name</label>
+        <input id="key-name" name="name" required maxlength="100" placeholder="e.g. Jenkins – payments-service" value="{{ (key_form or {}).name or '' }}" aria-describedby="key-name-hint">
+        <span class="xs muted" id="key-name-hint">Where the key is used, so you recognise it later.</span>
+    </div>
+    <div class="field" style="flex:1;min-width:220px">
+        <label for="key-project">Default project <span class="muted" style="font-weight:400">(optional)</span></label>
+        <input id="key-project" name="project" maxlength="200" placeholder="e.g. payments-service" value="{{ (key_form or {}).project or '' }}" aria-describedby="key-project-hint">
+        <span class="xs muted" id="key-project-hint">Uploads made with this key go to this project when the pipeline does not pass <code>--project</code>. Leave empty if one key serves several projects: each pipeline then names its project.</span>
+    </div>
+    <button class="btn btn-primary" type="submit">{{ icon('plus') }} Create key</button>
+</form>
+
+<section class="card" aria-labelledby="keys-title">
+    <div class="card-header"><h2 id="keys-title" class="small">Your keys</h2><span class="xs muted">{{ keys | length }}</span></div>
+    {% if keys %}
+    <div class="table-wrap"><table class="table">
+        <caption class="sr-only">Your API keys</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col">Default project</th><th scope="col">Key</th><th scope="col">Created</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+        {% for k in keys %}
+        <tr {% if k.revoked_at %}class="muted"{% endif %}>
+            <td>{{ k.name }}</td>
+            <td class="small">{% if k.project %}<code>{{ k.project }}</code>{% else %}<span class="muted">pipeline names it</span>{% endif %}</td>
+            <td><code class="xs">mc_{{ k.prefix }}_…</code></td>
+            <td class="small nowrap">{{ k.created_at | ago }}</td>
+            <td class="small nowrap">{{ k.last_used_at | ago or 'never' }}</td>
+            <td class="num">
+                {% if k.revoked_at %}<span class="badge">revoked</span>{% else %}
+                <form method="post" action="/settings/api-keys/{{ k.id }}/revoke">
+                    <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+                    <button class="btn btn-sm btn-ghost danger-text" type="submit" aria-label="Revoke key {{ k.name }}">Revoke</button>
+                </form>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}
+    <p class="card-body small muted">No keys yet.</p>
+    {% endif %}
+</section>
+
+{% elif tab == 'users' %}
+{% if issued %}
+<section class="card card-body new-key" aria-labelledby="issued-title" style="margin-bottom:24px">
+    <h2 id="issued-title" class="small">{{ icon('check-circle') }} {% if issued.new %}Account created for{% else %}New password for{% endif %} {{ issued.email }}</h2>
+    <p class="small">Send this temporary password to them privately. It is shown only once; they choose their own at first sign-in.</p>
+    <div class="copy-row"><code id="issued-password">{{ issued.password }}</code><button class="btn btn-sm" type="button" data-copy="issued-password">Copy</button></div>
+</section>
+{% endif %}
+
+<form method="post" action="/settings/users" class="card card-body inline-form" style="margin-bottom:24px" aria-labelledby="add-user-title">
+    <h2 id="add-user-title" class="small" style="width:100%">Add a user</h2>
+    <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+    <div class="field" style="flex:1;min-width:180px"><label for="u-name">Name</label><input id="u-name" name="name" required value="{{ (form or {}).name or '' }}"></div>
+    <div class="field" style="flex:1.4;min-width:220px"><label for="u-email">Email</label><input id="u-email" name="email" type="email" required value="{{ (form or {}).email or '' }}"></div>
+    <div class="field"><label for="u-role">Role</label>
+        <select id="u-role" name="role">
+            <option value="viewer" {% if (form or {}).role != 'admin' %}selected{% endif %}>Viewer: reads everything</option>
+            <option value="admin" {% if (form or {}).role == 'admin' %}selected{% endif %}>Admin: uploads and manages</option>
+        </select></div>
+    <button class="btn btn-primary" type="submit">{{ icon('plus') }} Add user</button>
+</form>
+
+<section class="card" aria-labelledby="users-title" style="margin-bottom:24px">
+    <div class="card-header"><h2 id="users-title" class="small">Users</h2><span class="xs muted">{{ users | length }}</span></div>
+    <div class="table-wrap"><table class="table">
+        <caption class="sr-only">Users of this server</caption>
+        <thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Last sign-in</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+        {% for u in users %}
+        <tr {% if not u.active %}class="muted"{% endif %}>
+            <td><strong>{{ u.name }}</strong>{% if u.id == me.id %} <span class="xs muted">(you)</span>{% endif %}
+                <div class="xs muted">{{ u.email }}{% if not u.active %} · deactivated{% elif u.must_change_password %} · temporary password{% endif %}</div></td>
+            <td>
+                <form method="post" action="/settings/users/{{ u.id }}" class="row" style="gap:6px;flex-wrap:nowrap">
+                    <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+                    <input type="hidden" name="action" value="role">
+                    <label class="sr-only" for="role-{{ u.id }}">Role of {{ u.name }}</label>
+                    <select id="role-{{ u.id }}" name="role" style="min-width:110px">
+                        <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>viewer</option>
+                        <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>admin</option>
+                    </select>
+                    <button class="btn btn-sm btn-ghost" type="submit" aria-label="Save role of {{ u.name }}">Save</button>
+                </form>
+            </td>
+            <td class="small nowrap">{{ u.last_login_at | ago or 'never' }}</td>
+            <td class="num">
+                <div class="row" style="justify-content:flex-end;gap:6px;flex-wrap:nowrap">
+                    <form method="post" action="/settings/users/{{ u.id }}">
+                        <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+                        <input type="hidden" name="action" value="reset-password">
+                        <button class="btn btn-sm btn-ghost" type="submit" aria-label="Reset password of {{ u.name }}">Reset password</button>
+                    </form>
+                    {% if u.id != me.id %}
+                    <form method="post" action="/settings/users/{{ u.id }}">
+                        <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+                        <input type="hidden" name="action" value="{{ 'deactivate' if u.active else 'activate' }}">
+                        <button class="btn btn-sm btn-ghost {% if u.active %}danger-text{% endif %}" type="submit" aria-label="{{ 'Deactivate' if u.active else 'Activate' }} {{ u.name }}">{{ 'Deactivate' if u.active else 'Activate' }}</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+</section>
+
+<section class="card" aria-labelledby="all-keys-title">
+    <div class="card-header"><h2 id="all-keys-title" class="small">All API keys</h2><span class="xs muted">{{ all_keys | selectattr('revoked_at', 'none') | list | length }} active</span></div>
+    {% if all_keys %}
+    <div class="table-wrap"><table class="table">
+        <caption class="sr-only">API keys of every user</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Default project</th><th scope="col">Key</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+        {% for k in all_keys %}
+        <tr {% if k.revoked_at %}class="muted"{% endif %}>
+            <td>{{ k.name }}</td>
+            <td class="small">{{ k.email }} <span class="badge role-{{ k.role }}">{{ k.role }}</span></td>
+            <td class="small">{% if k.project %}<code>{{ k.project }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td><code class="xs">mc_{{ k.prefix }}_…</code></td>
+            <td class="small nowrap">{{ k.last_used_at | ago or 'never' }}</td>
+            <td class="num">
+                {% if k.revoked_at %}<span class="badge">revoked</span>{% else %}
+                <form method="post" action="/settings/api-keys/{{ k.id }}/revoke">
+                    <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
+                    <input type="hidden" name="back" value="/settings/users">
+                    <button class="btn btn-sm btn-ghost danger-text" type="submit" aria-label="Revoke key {{ k.name }} of {{ k.email }}">Revoke</button>
+                </form>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table></div>
+    {% else %}<p class="card-body small muted">No keys yet.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

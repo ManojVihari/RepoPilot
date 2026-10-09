@@ -1,0 +1,112 @@
+{% from "_ui/macros.html" import icon %}
+{% set me = request.state.user %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Mergeclear{% endblock %} · Mergeclear</title>
+    <meta name="color-scheme" content="light dark">
+    {% if me and me.csrf_token %}<meta name="csrf-token" content="{{ me.csrf_token }}">{% endif %}
+    <link rel="stylesheet" href="/static/app.css">
+    <script nonce="{{ request.state.csp_nonce }}">
+        // apply the saved theme before first paint (no flash)
+        try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+    </script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="loading-bar" id="loading-bar" aria-hidden="true"></div>
+
+<header class="topbar">
+    <div class="topbar-inner">
+        {% block sidebar_toggle %}{% endblock %}
+        <a class="brand" href="/" aria-label="Mergeclear home">
+            <span class="brand-mark" aria-hidden="true">M</span><span>Mergeclear</span>
+        </a>
+        {% if me %}
+        <nav class="mainnav" aria-label="Main">
+            <a href="/ui" {% if nav == 'dashboard' %}aria-current="page"{% endif %}>{{ icon('home') }}<span>Dashboard</span></a>
+            <a href="/ui/all" {% if nav == 'apis' %}aria-current="page"{% endif %}>{{ icon('list') }}<span>APIs</span></a>
+            <a href="/ui/search" {% if nav == 'search' %}aria-current="page"{% endif %}>{{ icon('sparkle') }}<span>Ask</span></a>
+        </nav>
+        {% endif %}
+        <div class="topbar-end">
+            {% if me %}
+            <form class="topbar-search" action="/ui/all" method="get" role="search">
+                <label class="sr-only" for="global-filter">Find an API</label>
+                {{ icon('search') }}
+                <input id="global-filter" type="search" name="q" placeholder="Find an API…" autocomplete="off">
+            </form>
+            {% endif %}
+            <button class="btn btn-ghost icon-btn" id="theme-toggle" type="button" aria-label="Switch color theme">
+                {{ icon('moon', 'theme-dark-icon') }}
+            </button>
+            {% if me %}
+            <details class="user-menu">
+                <summary aria-label="Account menu for {{ me.name }}"><span class="avatar" aria-hidden="true">{{ (me.name or me.email)[:1] | upper }}</span></summary>
+                <div class="user-menu-panel" role="menu">
+                    <div class="user-menu-who"><strong>{{ me.name }}</strong><div class="xs muted">{{ me.email }}</div><span class="badge role-{{ me.role }}">{{ me.role }}</span></div>
+                    <a role="menuitem" href="/settings">{{ icon('user') }} Profile &amp; password</a>
+                    <a role="menuitem" href="/settings/api-keys">{{ icon('key') }} API keys</a>
+                    {% if me.is_admin %}<a role="menuitem" href="/settings/users">{{ icon('users') }} Users</a>{% endif %}
+                    <form method="post" action="/logout">
+                        <input type="hidden" name="csrf_token" value="{{ me.csrf_token or '' }}">
+                        <button role="menuitem" type="submit">{{ icon('logout') }} Sign out</button>
+                    </form>
+                </div>
+            </details>
+            {% elif request.url.path not in ('/login', '/setup', '/signup') %}
+            <a class="btn btn-sm" href="/login">Sign in</a>
+            {% endif %}
+        </div>
+    </div>
+</header>
+
+{% block body %}
+<main id="main" class="page {% block page_class %}{% endblock %}" tabindex="-1">
+    {% block content %}{% endblock %}
+</main>
+{% endblock %}
+
+<script nonce="{{ request.state.csp_nonce }}">
+    // theme toggle: light <-> dark, remembered per browser
+    (function () {
+        const root = document.documentElement, btn = document.getElementById("theme-toggle");
+        const isDark = () => root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+        const label = () => btn.setAttribute("aria-label", isDark() ? "Switch to light theme" : "Switch to dark theme");
+        label();
+        btn.addEventListener("click", () => {
+            root.dataset.theme = isDark() ? "light" : "dark";
+            try { localStorage.setItem("theme", root.dataset.theme); } catch (e) {}
+            label();
+        });
+    })();
+    // thin progress bar on navigation, so slow pages (LLM) feel responsive
+    window.addEventListener("click", e => {
+        const a = e.target.closest("a[href]");
+        if (!a || a.target || e.ctrlKey || e.metaKey || e.shiftKey || a.hasAttribute("download")) return;
+        const url = new URL(a.href, location.href);
+        if (url.origin !== location.origin || url.hash && url.pathname === location.pathname) return;
+        document.getElementById("loading-bar").classList.add("active");
+    });
+    window.addEventListener("pageshow", () => document.getElementById("loading-bar").classList.remove("active"));
+    // the session's CSRF token, for fetch() calls that change something
+    window.csrfToken = () => (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
+    // declarative behaviours (the CSP allows no inline event handlers)
+    document.querySelectorAll("select[data-navigate]").forEach(select =>
+        select.addEventListener("change", () => { location.href = select.dataset.navigate + encodeURIComponent(select.value); }));
+    document.querySelectorAll("[data-print]").forEach(button => button.addEventListener("click", () => window.print()));
+    document.querySelectorAll("form[data-no-submit]").forEach(form => form.addEventListener("submit", e => e.preventDefault()));
+    document.querySelectorAll("[data-copy]").forEach(button => button.addEventListener("click", () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        navigator.clipboard.writeText(text).then(() => { button.textContent = "Copied"; setTimeout(() => { button.textContent = "Copy"; }, 2000); });
+    }));
+    // close the account menu on outside click / Escape
+    document.addEventListener("click", e => document.querySelectorAll("details.user-menu[open]").forEach(d => { if (!d.contains(e.target)) d.open = false; }));
+    document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll("details.user-menu[open]").forEach(d => { d.open = false; d.querySelector("summary").focus(); }); });
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

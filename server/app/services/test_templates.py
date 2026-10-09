@@ -2,133 +2,66 @@
 Custom Test Templates Service
 Allows organizations to define reusable test case patterns
 """
-import os
-import json
 from typing import Dict, List, Optional
-from datetime import datetime
+
+from sqlalchemy import delete, select
+
+from app import db
+from app.db import test_templates
+from app.services.docs_store import is_safe_name
 
 
-TEMPLATES_DIR = "database/test_templates"
+def _template_key(template_name: str) -> str:
+    return template_name.strip().lower().replace(" ", "_").replace("-", "_")
 
 
-def ensure_templates_dir():
-    """Create templates directory if it doesn't exist."""
-    if not os.path.exists(TEMPLATES_DIR):
-        os.makedirs(TEMPLATES_DIR, exist_ok=True)
+def _valid(repo: str, template_name: str) -> bool:
+    key = _template_key(template_name or "")
+    return is_safe_name(repo) and is_safe_name(key) and len(key) <= 200
+
+
+def _as_dict(row) -> Dict:
+    return {"name": row.name, "category": row.category, "description": row.description,
+            "test_cases": row.test_cases, "created_at": row.created_at.isoformat() if row.created_at else None,
+            "test_count": len(row.test_cases or [])}
 
 
 def create_template(repo: str, name: str, category: str, description: str, test_cases: List[str]) -> bool:
-    """
-    Create a new custom test template for an organization.
-    
-    Args:
-        repo: Repository/organization name
-        name: Template name (e.g., "Payment Flow Tests")
-        category: Category (happy_path, error_cases, security_tests, etc.)
-        description: Template description
-        test_cases: List of test case descriptions
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    ensure_templates_dir()
-    
-    repo_dir = os.path.join(TEMPLATES_DIR, repo)
-    os.makedirs(repo_dir, exist_ok=True)
-    
-    template = {
-        "name": name,
-        "category": category,
-        "description": description,
-        "test_cases": test_cases,
-        "created_at": datetime.utcnow().isoformat(),
-        "test_count": len(test_cases)
-    }
-    
-    # Use template name as filename (sanitize)
-    filename = f"{name.lower().replace(' ', '_').replace('-', '_')}.json"
-    template_path = os.path.join(repo_dir, filename)
-    
-    try:
-        with open(template_path, 'w') as f:
-            json.dump(template, f, indent=2)
-        return True
-    except Exception as e:
-        print(f"❌ Error creating template: {e}")
+    """Create (or replace) a custom test template of a repository."""
+    if not _valid(repo, name):
         return False
+    with db.engine().begin() as conn:
+        db.upsert(conn, test_templates, {
+            "repo": repo, "key": _template_key(name), "name": name, "category": category,
+            "description": description, "test_cases": list(test_cases or []), "created_at": db.utcnow(),
+        }, ("repo", "key"))
+    return True
 
 
 def get_template(repo: str, template_name: str) -> Optional[Dict]:
-    """Get a specific template."""
-    ensure_templates_dir()
-    
-    filename = f"{template_name.lower().replace(' ', '_').replace('-', '_')}.json"
-    template_path = os.path.join(TEMPLATES_DIR, repo, filename)
-    
-    if not os.path.exists(template_path):
+    if not _valid(repo, template_name):
         return None
-    
-    try:
-        with open(template_path, 'r') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"❌ Error reading template: {e}")
-        return None
+    with db.engine().connect() as conn:
+        row = conn.execute(select(test_templates).where(
+            test_templates.c.repo == repo, test_templates.c.key == _template_key(template_name))).first()
+    return _as_dict(row) if row else None
 
 
 def list_templates(repo: str, category: Optional[str] = None) -> List[Dict]:
-    """
-    List all templates for a repository, optionally filtered by category.
-    
-    Args:
-        repo: Repository name
-        category: Optional category filter
-        
-    Returns:
-        List of templates
-    """
-    ensure_templates_dir()
-    
-    repo_dir = os.path.join(TEMPLATES_DIR, repo)
-    
-    if not os.path.exists(repo_dir):
-        return []
-    
-    templates = []
-    
-    try:
-        for filename in os.listdir(repo_dir):
-            if not filename.endswith('.json'):
-                continue
-            
-            template_path = os.path.join(repo_dir, filename)
-            with open(template_path, 'r') as f:
-                template = json.load(f)
-                
-                if category is None or template.get("category") == category:
-                    templates.append(template)
-    except Exception as e:
-        print(f"❌ Error listing templates: {e}")
-    
-    return sorted(templates, key=lambda x: x.get("created_at", ""), reverse=True)
+    """Templates of a repository, newest first, optionally of one category."""
+    query = select(test_templates).where(test_templates.c.repo == repo)
+    if category is not None:
+        query = query.where(test_templates.c.category == category)
+    with db.engine().connect() as conn:
+        return [_as_dict(r) for r in conn.execute(query.order_by(test_templates.c.created_at.desc()))]
 
 
 def delete_template(repo: str, template_name: str) -> bool:
-    """Delete a template."""
-    ensure_templates_dir()
-    
-    filename = f"{template_name.lower().replace(' ', '_').replace('-', '_')}.json"
-    template_path = os.path.join(TEMPLATES_DIR, repo, filename)
-    
-    if not os.path.exists(template_path):
+    if not _valid(repo, template_name):
         return False
-    
-    try:
-        os.remove(template_path)
-        return True
-    except Exception as e:
-        print(f"❌ Error deleting template: {e}")
-        return False
+    with db.engine().begin() as conn:
+        return conn.execute(delete(test_templates).where(
+            test_templates.c.repo == repo, test_templates.c.key == _template_key(template_name))).rowcount > 0
 
 
 def get_predefined_templates() -> Dict[str, List[Dict]]:

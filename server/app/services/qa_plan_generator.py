@@ -5,11 +5,10 @@ for API documentation using local Ollama LLM.
 """
 import requests
 import json
-from typing import Optional, List, Dict
+from typing import Optional, Dict
+from app.config import OLLAMA_URL, OLLAMA_MODEL
 
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL = "mistral"
 
 
 def generate_template_qa_plan(api_name: str) -> Dict:
@@ -189,7 +188,7 @@ IMPORTANT:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False
             },
@@ -219,7 +218,7 @@ IMPORTANT:
                     return None
         
     except requests.exceptions.ConnectionError:
-        print(f"❌ Ollama not running. Start with: ollama serve")
+        print("❌ Ollama not running. Start with: ollama serve")
         return None
     except Exception as e:
         print(f"⚠️ Error generating test cases: {e}")
@@ -290,7 +289,7 @@ IMPORTANT:
         response = requests.post(
             OLLAMA_URL,
             json={
-                "model": MODEL,
+                "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False
             },
@@ -318,7 +317,7 @@ IMPORTANT:
                     return None
         
     except requests.exceptions.ConnectionError:
-        print(f"❌ Ollama not running. Start with: ollama serve")
+        print("❌ Ollama not running. Start with: ollama serve")
         return None
     except Exception as e:
         print(f"⚠️ Error generating regression tests: {e}")
@@ -425,7 +424,7 @@ def generate_qa_execution_checklist(api_name: str, test_cases: Dict, regression_
         "items": [
             f"☐ Run {happy_path_count} happy path tests - all must pass",
             f"☐ Run {error_count} error handling tests - all must pass",
-            f"☐ Verify response format matches documentation"
+            "☐ Verify response format matches documentation"
         ]
     })
     

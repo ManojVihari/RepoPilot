@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-DocAI Ollama Setup Validator
+Mergeclear Ollama setup validator
 Checks if Ollama and Mistral are properly configured
 """
 
+import os
 import sys
 import requests
-import json
 
 def check_ollama_connection():
     """Check if Ollama server is running"""
@@ -81,7 +81,7 @@ def test_mistral_inference():
             result = response.json()
             if "response" in result:
                 answer = result["response"].strip()
-                print(f"   ✅ Mistral is working!")
+                print("   ✅ Mistral is working!")
                 print(f"      Test response: '{answer}'")
                 return True
             else:
@@ -98,16 +98,16 @@ def test_mistral_inference():
         print(f"   ❌ Error during inference: {e}")
         return False
 
-def check_docai_imports():
-    """Check if DocAI Ollama integration can be imported"""
-    print("\n🔍 Checking DocAI integration...")
+def check_server_imports():
+    """Check that the Mergeclear server and its Ollama integration import"""
+    print("\n🔍 Checking the Mergeclear server...")
     try:
-        sys.path.insert(0, '/Users/manojviharimachina/IIITH/PDM Project/docai-server')
-        from app.services.llm_service import summarize_changes
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from app.services.llm_service import summarize_changes  # noqa: F401
         print("   ✅ llm_service.py imports successfully")
-        
-        from app.api.routes import api_diff
-        print("   ✅ routes.py with Ollama integration loads successfully")
+
+        from app.api.routes import router  # noqa: F401
+        print("   ✅ routes.py loads successfully")
         
         return True
     except Exception as e:
@@ -117,7 +117,7 @@ def check_docai_imports():
 def main():
     """Run all validation checks"""
     print("=" * 60)
-    print("🚀 DocAI Ollama Setup Validator")
+    print("🚀 Mergeclear Ollama setup validator")
     print("=" * 60)
     
     results = {}
@@ -161,8 +161,8 @@ def main():
         print("  - Restart Ollama: ollama serve")
         print("=" * 60)
     
-    # Check 4: DocAI integration
-    results["docai_integration"] = check_docai_imports()
+    # Check 4: server integration
+    results["server_integration"] = check_server_imports()
     
     # Final status
     print("\n" + "=" * 60)
@@ -179,9 +179,9 @@ def main():
     
     if all_passed:
         print("\n🎉 All checks passed!")
-        print("\nYou're ready to use DocAI with AI-powered diffs!")
+        print("\nYou're ready to use Mergeclear with AI-written docs and summaries!")
         print("\n📋 Next steps:")
-        print("  1. Start DocAI: python run.py")
+        print("  1. Start Mergeclear: python run.py")
         print("  2. Open http://localhost:8000/ui")
         print("  3. Navigate to any API → History → Compare")
         print("  4. Enjoy AI-powered diffs! ✨")

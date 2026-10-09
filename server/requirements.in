@@ -1,0 +1,15 @@
+# Direct dependencies of the server (ranges). The lock is requirements.txt:
+#   uv pip compile server/requirements.in --universal --python-version 3.10 --generate-hashes -o server/requirements.txt
+# TemplateResponse(request, name, ...) needs Starlette 0.29+ (FastAPI 0.108+)
+fastapi>=0.108,<1
+uvicorn>=0.29,<1
+jinja2>=3.1,<4
+pydantic>=2,<3
+python-multipart>=0.0.9,<1
+requests>=2.31,<3
+beautifulsoup4>=4.12,<5
+markdown>=3.4,<4
+nh3>=0.2.14,<1
+sqlalchemy>=2.0,<3
+alembic>=1.13,<2
+psycopg[binary]>=3.1,<4

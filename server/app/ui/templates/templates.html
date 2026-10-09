@@ -1,325 +1,115 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test Templates - {{ api }} - DocAI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+{% extends "_ui/api_layout.html" %}
+{% from "_ui/macros.html" import icon %}
+{% block title %}Test templates · {{ api_title }}{% endblock %}
+{% block content %}
+<p class="muted" style="margin-bottom:16px">Reusable test-case sets. Recommended ones match what this API does; saved templates are shared by every API in <strong>{{ repo }}</strong>.</p>
 
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
-        
-        * {
-            font-family: 'Inter', sans-serif;
-        }
-        
-        h1, h2, h3, h4 {
-            font-family: 'Poppins', sans-serif;
-        }
-
-        .template-card {
-            background: white;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 16px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .template-card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            border-color: #3b82f6;
-        }
-
-        .template-card.selected {
-            background: #eff6ff;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        }
-
-        .category-badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .category-happy_path { background: #d1fae5; color: #065f46; }
-        .category-error_cases { background: #fee2e2; color: #991b1b; }
-        .category-security_tests { background: #fef3c7; color: #92400e; }
-        .category-performance_tests { background: #dbeafe; color: #1e40af; }
-        .category-edge_cases { background: #e9d5ff; color: #6b21a8; }
-
-        .fade-in {
-            animation: fadeIn 0.5s ease-in;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .tab-active {
-            border-bottom: 3px solid #3b82f6;
-            color: #1e40af;
-        }
-    </style>
-</head>
-<body class="bg-slate-50">
-
-<!-- Navigation -->
-<div class="bg-white border-b border-slate-200 sticky top-0 z-40">
-    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div class="flex items-center gap-2">
-            <a href="/ui" class="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1">
-                <i class="fas fa-home"></i> Home
-            </a>
-            <span class="text-slate-400">/</span>
-            <a href="/ui/{{ repo }}" class="text-blue-600 hover:text-blue-700 text-sm">{{ repo }}</a>
-            <span class="text-slate-400">/</span>
-            <a href="/ui/{{ repo }}/{{ api }}" class="text-blue-600 hover:text-blue-700 text-sm">{{ api }}</a>
-            <span class="text-slate-400">/</span>
-            <span class="text-slate-600 text-sm font-semibold">Test Templates</span>
-        </div>
-        <a href="/ui/{{ repo }}/{{ api }}" class="text-slate-600 hover:text-slate-900 text-sm flex items-center gap-2">
-            <i class="fas fa-arrow-left"></i> Back to API
-        </a>
-    </div>
+<div class="tabs" role="tablist" aria-label="Template sets" style="margin-bottom:20px">
+    <button role="tab" id="t-rec" aria-controls="p-rec" aria-selected="true">Recommended</button>
+    <button role="tab" id="t-pre" aria-controls="p-pre" aria-selected="false" tabindex="-1">Library</button>
+    <button role="tab" id="t-own" aria-controls="p-own" aria-selected="false" tabindex="-1">Saved ({{ custom_templates | length }})</button>
 </div>
 
-<!-- Main Content -->
-<div class="max-w-7xl mx-auto px-4 py-8">
-
-    <!-- Header -->
-    <div class="mb-8 fade-in">
-        <h1 class="text-4xl font-bold text-slate-900 mb-2">Test Templates</h1>
-        <p class="text-slate-600">
-            Manage reusable test case templates for <strong>{{ api }}</strong> in <strong>{{ repo }}</strong>
-        </p>
+{% macro template_card(t, can_save=True) %}
+<article class="card card-body">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <h4>{{ t.name }}</h4>
+        {% if t.category %}<span class="badge">{{ t.category | replace('_', ' ') }}</span>{% endif %}
     </div>
+    {% if t.description %}<p class="small muted" style="margin-top:4px">{{ t.description }}</p>{% endif %}
+    <ul class="small" style="margin:10px 0 0;padding-left:18px">
+        {% for c in t.test_cases[:4] %}<li>{{ c }}</li>{% endfor %}
+    </ul>
+    {% if t.test_cases | length > 4 %}<p class="xs faint" style="margin-top:4px">+ {{ t.test_cases | length - 4 }} more</p>{% endif %}
+    {% if can_save %}
+    {% if request.state.user.is_admin %}<div style="margin-top:12px"><button type="button" class="btn btn-sm save-template" data-template='{{ t | tojson | forceescape }}'>{{ icon('plus') }} Save to {{ repo }}</button></div>{% endif %}
+    {% endif %}
+</article>
+{% endmacro %}
 
-    <!-- Tabs -->
-    <div class="flex gap-6 border-b border-slate-200 mb-8">
-        <button onclick="switchTab('recommended')" class="pb-3 text-slate-600 font-semibold border-b-0 hover:text-slate-900 tab-link" data-tab="recommended">
-            <i class="fas fa-star"></i> Recommended for {{ api }}
-        </button>
-        <button onclick="switchTab('predefined')" class="pb-3 text-slate-600 font-semibold border-b-0 hover:text-slate-900 tab-link" data-tab="predefined">
-            <i class="fas fa-cube"></i> Predefined Templates
-        </button>
-        <button onclick="switchTab('custom')" class="pb-3 text-slate-600 font-semibold border-b-0 hover:text-slate-900 tab-link" data-tab="custom">
-            <i class="fas fa-code"></i> Custom Templates
-        </button>
-    </div>
+<section role="tabpanel" id="p-rec" aria-labelledby="t-rec">
+    <div class="grid grid-2">{% for t in recommendations %}{{ template_card(t) }}{% else %}<p class="muted">No recommendations for this API.</p>{% endfor %}</div>
+</section>
 
-    <!-- Recommended Templates Tab -->
-    <div id="tab-recommended" class="tab-content">
-        <div class="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-            <i class="fas fa-lightbulb text-blue-600"></i>
-            <strong class="text-blue-900 ml-2">Personalized Recommendations</strong>
-            <p class="text-blue-800 text-sm mt-1">These templates are tailored for your API based on its name and functionality.</p>
+<section role="tabpanel" id="p-pre" aria-labelledby="t-pre" hidden>
+    {% for category, items in predefined_templates.items() %}
+    <h3 style="margin:8px 0 12px">{{ category | replace('_', ' ') | capitalize }}</h3>
+    <div class="grid grid-2" style="margin-bottom:24px">{% for t in items %}{{ template_card(t) }}{% endfor %}</div>
+    {% endfor %}
+</section>
+
+<section role="tabpanel" id="p-own" aria-labelledby="t-own" hidden>
+    {% if custom_templates %}
+    <div class="grid grid-2" style="margin-bottom:24px">{% for t in custom_templates %}{{ template_card(t, False) }}{% endfor %}</div>
+    {% else %}
+    <div class="card empty" style="margin-bottom:24px">{{ icon('layers') }}<h3>No saved templates</h3><p>Save one from the other tabs or create your own below.</p></div>
+    {% endif %}
+
+    {% if request.state.user.is_admin %}
+    <form class="card card-body stack" id="create-form">
+        <h3>Create a template</h3>
+        <div class="grid grid-2">
+            <div class="field"><label for="tpl-name">Name</label><input id="tpl-name" name="name" type="text" required placeholder="e.g. Payment flow"></div>
+            <div class="field"><label for="tpl-category">Category</label>
+                <select id="tpl-category" name="category">
+                    {% for c in ['happy_path', 'error_cases', 'security_tests', 'performance_tests', 'edge_cases'] %}<option value="{{ c }}">{{ c | replace('_', ' ') }}</option>{% endfor %}
+                </select></div>
         </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {% for template in recommendations %}
-            <div class="template-card" onclick="viewTemplate(this)">
-                <div class="flex items-start justify-between mb-3">
-                    <div>
-                        <h3 class="font-semibold text-slate-900">{{ template.name }}</h3>
-                        <span class="category-badge category-{{ template.category }}">{{ template.category }}</span>
-                    </div>
-                    <div class="text-slate-400">
-                        <i class="fas fa-chevron-right"></i>
-                    </div>
-                </div>
-                <p class="text-slate-600 text-sm mb-3">{{ template.description }}</p>
-                <div class="flex items-center justify-between text-xs">
-                    <span class="text-slate-500"><i class="fas fa-check-circle"></i> {{ template.test_cases|length }} tests</span>
-                    <button onclick="applyTemplate(event, '{{ template.name }}')" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs">
-                        <i class="fas fa-check"></i> Apply
-                    </button>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <!-- Predefined Templates Tab -->
-    <div id="tab-predefined" class="tab-content hidden">
-        {% for category, templates_list in predefined_templates.items() %}
-        <div class="mb-8">
-            <h2 class="text-xl font-bold text-slate-900 mb-4 flex items-center gap-2">
-                <span class="category-badge category-{{ category }}">{{ category|replace('_', ' ')|upper }}</span>
-            </h2>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {% for template in templates_list %}
-                <div class="template-card" onclick="viewTemplate(this)">
-                    <div class="flex items-start justify-between mb-3">
-                        <div>
-                            <h3 class="font-semibold text-slate-900">{{ template.name }}</h3>
-                        </div>
-                        <div class="text-slate-400">
-                            <i class="fas fa-chevron-right"></i>
-                        </div>
-                    </div>
-                    <p class="text-slate-600 text-sm mb-4">{{ template.description }}</p>
-                    <div class="space-y-2 mb-4">
-                        {% for test_case in template.test_cases[:3] %}
-                        <div class="text-xs text-slate-700 flex gap-2">
-                            <span class="text-slate-400">•</span>
-                            <span>{{ test_case }}</span>
-                        </div>
-                        {% endfor %}
-                        {% if template.test_cases|length > 3 %}
-                        <div class="text-xs text-slate-500 italic">+{{ template.test_cases|length - 3 }} more tests</div>
-                        {% endif %}
-                    </div>
-                    <div class="flex items-center justify-between text-xs">
-                        <span class="text-slate-500"><i class="fas fa-check-circle"></i> {{ template.test_cases|length }} tests</span>
-                        <button onclick="saveCustomTemplate(event, '{{ template.name }}')" class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs">
-                            <i class="fas fa-save"></i> Save as Custom
-                        </button>
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-
-    <!-- Custom Templates Tab -->
-    <div id="tab-custom" class="tab-content hidden">
-        {% if custom_templates %}
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            {% for template in custom_templates %}
-            <div class="template-card">
-                <div class="flex items-start justify-between mb-3">
-                    <div>
-                        <h3 class="font-semibold text-slate-900">{{ template.name }}</h3>
-                        <span class="category-badge category-{{ template.category }}">{{ template.category }}</span>
-                    </div>
-                    <div class="text-slate-400">
-                        <i class="fas fa-cog"></i>
-                    </div>
-                </div>
-                <p class="text-slate-600 text-sm mb-2">Created: <strong>{{ template.created_at.split('T')[0] }}</strong></p>
-                <div class="space-y-2 mb-4">
-                    {% for test_case in template.test_cases[:3] %}
-                    <div class="text-xs text-slate-700 flex gap-2">
-                        <span class="text-slate-400">•</span>
-                        <span>{{ test_case }}</span>
-                    </div>
-                    {% endfor %}
-                    {% if template.test_cases|length > 3 %}
-                    <div class="text-xs text-slate-500 italic">+{{ template.test_cases|length - 3 }} more tests</div>
-                    {% endif %}
-                </div>
-                <div class="flex items-center justify-between text-xs">
-                    <span class="text-slate-500"><i class="fas fa-check-circle"></i> {{ template.test_count }} tests</span>
-                    <button class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-xs">
-                        <i class="fas fa-edit"></i> Edit
-                    </button>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="p-6 bg-blue-50 rounded-lg border border-blue-200 text-center">
-            <i class="fas fa-folder-open text-blue-600 text-3xl mb-3"></i>
-            <p class="text-slate-600 font-semibold">No custom templates yet</p>
-            <p class="text-slate-500 text-sm mt-1">Save templates from predefined collections to create your own</p>
-        </div>
-        {% endif %}
-
-        <!-- Create New Template -->
-        <div class="mt-8 bg-white p-6 rounded-lg border border-slate-200">
-            <h3 class="text-lg font-bold text-slate-900 mb-4">
-                <i class="fas fa-plus-circle text-green-600"></i> Create New Template
-            </h3>
-            <form onsubmit="createTemplate(event)" class="space-y-4">
-                <div>
-                    <label class="block text-sm font-semibold text-slate-900 mb-2">Template Name</label>
-                    <input type="text" required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="e.g., Custom Payment Tests">
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-900 mb-2">Category</label>
-                    <select required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
-                        <option>happy_path</option>
-                        <option>error_cases</option>
-                        <option>security_tests</option>
-                        <option>performance_tests</option>
-                        <option>edge_cases</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-900 mb-2">Description</label>
-                    <textarea required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" rows="3" placeholder="Describe what this template covers..."></textarea>
-                </div>
-                <div>
-                    <label class="block text-sm font-semibold text-slate-900 mb-2">Test Cases (one per line)</label>
-                    <textarea required class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm" rows="6" placeholder="Test case 1&#10;Test case 2&#10;Test case 3"></textarea>
-                </div>
-                <button type="submit" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold flex items-center gap-2">
-                    <i class="fas fa-check"></i> Create Template
-                </button>
-            </form>
-        </div>
-    </div>
-
-</div>
-
-<script>
-    function switchTab(tabName) {
-        // Hide all tabs
-        document.querySelectorAll('.tab-content').forEach(tab => {
-            tab.classList.add('hidden');
+        <div class="field"><label for="tpl-description">Description</label><input id="tpl-description" name="description" type="text" required></div>
+        <div class="field"><label for="tpl-cases">Test cases</label><textarea id="tpl-cases" name="cases" rows="5" required aria-describedby="tpl-cases-hint"></textarea><span class="field-hint" id="tpl-cases-hint">One test case per line.</span></div>
+        <div class="row"><button class="btn btn-primary" type="submit">{{ icon('check') }} Save template</button><span id="form-status" role="status" class="small muted"></span></div>
+    </form>
+    {% else %}
+    <p class="small muted">Only admins can save templates.</p>
+    {% endif %}
+</section>
+{% endblock %}
+{% block page_scripts %}
+<script nonce="{{ request.state.csp_nonce }}">
+    (function () {
+        // accessible tabs: arrow keys move between tabs
+        const tabs = [...document.querySelectorAll('[role="tab"]')];
+        function select(tab) {
+            tabs.forEach(t => {
+                const on = t === tab;
+                t.setAttribute("aria-selected", on); t.tabIndex = on ? 0 : -1;
+                document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+            });
+            tab.focus();
+        }
+        tabs.forEach((t, i) => {
+            t.addEventListener("click", () => select(t));
+            t.addEventListener("keydown", e => {
+                if (e.key === "ArrowRight") select(tabs[(i + 1) % tabs.length]);
+                if (e.key === "ArrowLeft") select(tabs[(i - 1 + tabs.length) % tabs.length]);
+            });
         });
-        
-        // Remove active state from all tabs
-        document.querySelectorAll('.tab-link').forEach(link => {
-            link.classList.remove('tab-active');
+
+        const repo = {{ repo | tojson }};
+        async function save(t) {
+            const params = new URLSearchParams({repo, name: t.name, category: t.category || "happy_path", description: t.description || t.name});
+            const res = await fetch("/api/templates/create?" + params, {method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken()}, body: JSON.stringify(t.test_cases)});
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !data.success) throw new Error(data.message || "Could not save the template");
+        }
+
+        document.querySelectorAll(".save-template").forEach(btn => btn.addEventListener("click", async () => {
+            btn.disabled = true;
+            try { await save(JSON.parse(btn.dataset.template)); btn.textContent = "Saved"; }
+            catch (e) { btn.disabled = false; btn.textContent = e.message; }
+        }));
+
+        const createForm = document.getElementById("create-form");
+        if (createForm) createForm.addEventListener("submit", async e => {
+            e.preventDefault();
+            const f = e.target, status = document.getElementById("form-status");
+            const cases = f.cases.value.split("\n").map(s => s.trim()).filter(Boolean);
+            try {
+                await save({name: f.name.value, category: f.category.value, description: f.description.value, test_cases: cases});
+                status.textContent = "Saved. Reloading…";
+                location.reload();
+            } catch (err) { status.textContent = err.message; }
         });
-        
-        // Show selected tab
-        document.getElementById(`tab-${tabName}`).classList.remove('hidden');
-        
-        // Add active state to clicked link
-        event.target.closest('.tab-link').classList.add('tab-active');
-    }
-
-    // Set first tab as active
-    document.querySelector('.tab-link').classList.add('tab-active');
-
-    function viewTemplate(el) {
-        // Toggle selection
-        document.querySelectorAll('.template-card').forEach(card => {
-            card.classList.remove('selected');
-        });
-        el.classList.add('selected');
-    }
-
-    function applyTemplate(e, templateName) {
-        e.stopPropagation();
-        alert(`Template "${templateName}" will be applied to the QA plan.`);
-        // Implementation: Apply template to QA plan
-    }
-
-    function saveCustomTemplate(e, templateName) {
-        e.stopPropagation();
-        alert(`Template "${templateName}" saved as custom.`);
-        // Implementation: Save as custom template
-    }
-
-    function createTemplate(e) {
-        e.preventDefault();
-        const form = e.target;
-        const formData = new FormData(form);
-        alert('Custom template created successfully!');
-        form.reset();
-    }
+    })();
 </script>
-
-</body>
-</html>
+{% endblock %}
