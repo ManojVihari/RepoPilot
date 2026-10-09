@@ -1,0 +1,8 @@
+# Direct dependencies of the scanner (ranges). The lock is requirements.txt:
+#   uv pip compile scanner/requirements.in --universal --python-version 3.10 --generate-hashes -o scanner/requirements.txt
+requests>=2.31,<3
+# Query/QueryCursor API needs tree-sitter 0.25+; grammars change between minor versions
+tree-sitter>=0.25,<0.27
+tree-sitter-java>=0.23,<0.24
+tree-sitter-python>=0.23,<0.26
+pyyaml>=6.0,<7

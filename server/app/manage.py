@@ -1,7 +1,7 @@
 """
 Server administration.
 
-    python -m app.manage init-db              create the tables (the server also does this on start)
+    python -m app.manage migrate              bring the database schema up to date (the server also does this on start)
     python -m app.manage worker [-n 2]        run background workers without the web server
     python -m app.manage process              run every queued job once, then exit
     python -m app.manage import-files [--docs DIR] [--database DIR]
@@ -11,6 +11,8 @@ Server administration.
     python -m app.manage reset-password --email E
                                               new temporary password (e.g. a locked-out admin)
     python -m app.manage list-users
+    python -m app.manage create-api-key --email E --name N
+                                              print a new API key of that user (automation, CI bootstrap)
 
 The database is MERGECLEAR_DATABASE_URL (or the SQLite default), as for the server.
 """
@@ -133,7 +135,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.manage", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("init-db", help="create the tables")
+    sub.add_parser("migrate", help="apply database migrations")
+    sub.add_parser("init-db", help="same as migrate (older name)")
     worker = sub.add_parser("worker", help="run background workers")
     worker.add_argument("-n", "--count", type=int, default=1)
     sub.add_parser("process", help="run queued jobs once, then exit")
@@ -144,6 +147,9 @@ def main(argv=None) -> int:
     reset = sub.add_parser("reset-password", help="issue a new temporary password")
     reset.add_argument("--email", required=True)
     sub.add_parser("list-users", help="list users")
+    key = sub.add_parser("create-api-key", help="create an API key for a user")
+    key.add_argument("--email", required=True)
+    key.add_argument("--name", default="created from the command line")
     imp = sub.add_parser("import-files", help="import the file-based layout")
     imp.add_argument("--docs", default=DOCS_DIR, help=f"docs folder (default: {DOCS_DIR})")
     imp.add_argument("--database", default=DATABASE_DIR, help=f"database folder (default: {DATABASE_DIR})")
@@ -151,13 +157,13 @@ def main(argv=None) -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     db.engine()
-    if args.command == "init-db":
-        print(f"tables ready in {db.describe()}")
+    if args.command in ("migrate", "init-db"):
+        print(f"schema at revision {db.schema_revision()} in {db.describe()}")
     elif args.command == "worker":
         run_workers(max(1, args.count))
     elif args.command == "process":
         print(f"ran {jobs.run_pending('manage')} job(s)")
-    elif args.command in ("create-user", "reset-password", "list-users"):
+    elif args.command in ("create-user", "reset-password", "list-users", "create-api-key"):
         from app import auth
         try:
             if args.command == "create-user":
@@ -173,6 +179,11 @@ def main(argv=None) -> int:
                 if not user["active"]:
                     auth.update_user(user["id"], active=True)
                 print(f"temporary password for {user['email']} (changed at first sign-in): {password}")
+            elif args.command == "create-api-key":
+                user = auth.get_user_by_email(args.email)
+                if user is None or not user["active"]:
+                    raise auth.AuthError(f"no active user {args.email}")
+                print(auth.create_api_key(user["id"], args.name)["key"])
             else:
                 for u in auth.list_users():
                     print(f"{u['email']:<40} {u['role']:<7} {'active' if u['active'] else 'deactivated'}")

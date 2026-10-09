@@ -17,9 +17,10 @@ RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin merge
 
 WORKDIR /app
 COPY server/requirements.txt server/requirements.txt
+# exact, hash-checked versions (server/requirements.txt is a lock file)
 RUN --mount=type=secret,id=ca,required=false \
     if [ -s /run/secrets/ca ]; then export PIP_CERT=/run/secrets/ca; fi; \
-    pip install --no-cache-dir -r server/requirements.txt
+    pip install --no-cache-dir --require-hashes -r server/requirements.txt
 
 # only the pure-Python contract module is used here, not the tree-sitter scanner
 COPY scanner/setup.py scanner/README.md scanner/

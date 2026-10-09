@@ -7,7 +7,6 @@ Checks if Ollama and Mistral are properly configured
 import os
 import sys
 import requests
-import json
 
 def check_ollama_connection():
     """Check if Ollama server is running"""
@@ -82,7 +81,7 @@ def test_mistral_inference():
             result = response.json()
             if "response" in result:
                 answer = result["response"].strip()
-                print(f"   ✅ Mistral is working!")
+                print("   ✅ Mistral is working!")
                 print(f"      Test response: '{answer}'")
                 return True
             else:

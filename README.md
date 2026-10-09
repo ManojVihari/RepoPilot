@@ -226,7 +226,9 @@ docker build -f server/Dockerfile -t mergeclear/server .            # from the r
 ### Without Docker
 
 ```bash
-pip install ./scanner -r server/requirements.txt
+python3 -m venv .venv && source .venv/bin/activate           # Python 3.10+
+pip install --require-hashes -r scanner/requirements.txt -r server/requirements.txt
+pip install --no-deps -e ./scanner                            # the mergeclear CLI
 cd server && python run.py              # http://localhost:8000 (development server with reload)
 ```
 
@@ -282,10 +284,34 @@ Content-Security-Policy with a per-request script nonce.
 ## Development
 
 ```bash
-pip install -e ./scanner -r server/requirements.txt pytest
+python3 -m venv .venv && source .venv/bin/activate
+pip install --require-hashes -r requirements-dev.txt   # scanner + server + pytest, ruff, pip-audit
+pip install --no-deps -e ./scanner
+
+ruff check .
 (cd scanner && python -m pytest)
 (cd server && python -m pytest)                       # SQLite
 (cd server && MERGECLEAR_TEST_DATABASE_URL=postgresql+psycopg://... python -m pytest)   # the same suite on Postgres
+scripts/smoke_test.sh                                 # Docker: images + Postgres + server + scanner end to end
 ```
+
+**Dependencies** are pinned with hashes. Edit the ranges in `scanner/requirements.in`,
+`server/requirements.in` or `requirements-dev.in`, then run `scripts/lock.sh`
+(needs `pip install uv`) to regenerate the `.txt` lock files; `scripts/lock.sh --upgrade`
+moves everything to the newest allowed versions. The images install exactly these locks.
+
+**Database changes** go through migrations: change the tables in `server/app/db.py`, then
+
+```bash
+cd server && alembic revision --autogenerate -m "add users.timezone"   # review the generated file
+```
+
+The server applies pending migrations when it starts (once, under a lock, even with several
+workers); `python -m app.manage migrate` does it by hand. A test fails when the models and
+the migrations disagree. Databases created before migrations existed are adopted automatically.
+
+**CI** (`.github/workflows/ci.yml`) runs on every pull request: lint and lock-file check,
+both test suites on Python 3.10 and 3.12 against SQLite and Postgres, a dependency audit
+(also weekly), and the Docker smoke test.
 
 Licensed under the Apache License 2.0.

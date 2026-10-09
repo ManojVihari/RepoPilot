@@ -183,13 +183,46 @@ def make_engine(url: str):
     return create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
 
 
+MIGRATIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "migrations")
+_MIGRATION_LOCK = 72_656_701      # any constant: one Postgres advisory lock for schema changes
+
+
+def migrate(target_engine, revision: str = "head"):
+    """
+    Bring the schema up to date (Alembic). Runs in one transaction; on Postgres
+    under an advisory lock, so a server and workers starting together migrate once.
+    """
+    import logging
+
+    from alembic import command
+    from alembic.config import Config
+
+    logging.getLogger("alembic.runtime.plugins").setLevel(logging.WARNING)   # setup chatter on every start
+    config = Config()
+    config.set_main_option("script_location", MIGRATIONS_DIR)
+    with target_engine.begin() as conn:
+        if conn.dialect.name == "postgresql":
+            conn.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": _MIGRATION_LOCK})
+        config.attributes["connection"] = conn
+        command.upgrade(config, revision)
+
+
+def schema_revision(target_engine=None) -> str:
+    """The migration the database is at (None before the first one)."""
+    from alembic.migration import MigrationContext
+
+    with (target_engine or engine()).connect() as conn:
+        return MigrationContext.configure(conn).get_current_revision()
+
+
 def engine():
     global _engine
     if _engine is None:
         with _engine_lock:
             if _engine is None:
-                _engine = make_engine(database_url())
-                metadata.create_all(_engine)
+                created = make_engine(database_url())
+                migrate(created)
+                _engine = created
     return _engine
 
 
@@ -200,7 +233,7 @@ def use(url: str):
         if _engine is not None:
             _engine.dispose()
         _engine = make_engine(url)
-        metadata.create_all(_engine)
+        migrate(_engine)
     return _engine
 
 

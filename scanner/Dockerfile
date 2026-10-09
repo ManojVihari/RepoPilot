@@ -25,11 +25,13 @@ RUN --mount=type=secret,id=ca,required=false \
     git config --system --add safe.directory '*'
 
 WORKDIR /src
-COPY setup.py README.md ./
+COPY requirements.txt setup.py README.md ./
 COPY mergeclear ./mergeclear
+# dependencies at their exact, hash-checked versions (requirements.txt is a lock file), then the CLI itself
 RUN --mount=type=secret,id=ca,required=false \
     if [ -s /run/secrets/ca ]; then export PIP_CERT=/run/secrets/ca; fi; \
-    pip install --no-cache-dir . && rm -rf /src
+    pip install --no-cache-dir --require-hashes -r requirements.txt \
+ && pip install --no-cache-dir --no-deps . && rm -rf /src
 
 # any uid can run it (-u), so keep HOME writable
 ENV HOME=/tmp PYTHONDONTWRITEBYTECODE=1

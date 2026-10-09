@@ -67,7 +67,7 @@ Keep it concise - maximum 5 bullet points, under 150 words. Use professional lan
         return None
         
     except requests.exceptions.ConnectionError:
-        print(f"❌ Ollama not running. Start with: ollama serve")
+        print("❌ Ollama not running. Start with: ollama serve")
         return None
     except requests.exceptions.Timeout:
         print("❌ Ollama request timed out")
@@ -271,7 +271,7 @@ Instructions:
         return matched
         
     except requests.exceptions.ConnectionError:
-        print(f"❌ Ollama not running for search. Start with: ollama serve")
+        print("❌ Ollama not running for search. Start with: ollama serve")
         return []
     except requests.exceptions.Timeout:
         print("❌ Ollama search request timed out")
@@ -402,5 +402,5 @@ INSTRUCTIONS:
         return {
             "success": False,
             "answer": None,
-            "message": f"Something went wrong on our end. Please try again later."
+            "message": "Something went wrong on our end. Please try again later."
         }

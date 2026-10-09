@@ -1,0 +1,12 @@
+# Lint for bugs, not style: undefined names, unused imports/variables, syntax errors.
+target-version = "py310"
+line-length = 140
+extend-exclude = ["scanner/tests/fixtures", "server/app/ui/static"]
+
+[lint]
+select = ["F", "E9", "B006", "B008"]
+# B008: FastAPI's Form(...) defaults are the intended pattern
+ignore = ["B008"]
+
+[lint.per-file-ignores]
+"server/tests/conftest.py" = ["E402"]
