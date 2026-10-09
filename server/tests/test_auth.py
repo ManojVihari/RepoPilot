@@ -193,7 +193,7 @@ def test_api_keys_are_shown_once_work_for_uploads_and_can_be_revoked(admin):
     key = re.search(r'id="new-key-value">([^<]+)<', created.text).group(1)
     assert key.startswith("mc_") and "MERGECLEAR_API_KEY=" in created.text
     assert key not in admin.get("/settings/api-keys").text                 # never shown again
-    assert key.split("_")[2] not in json.dumps(auth.list_api_keys(), default=str)     # secret not stored
+    assert key.split("_", 2)[2] not in json.dumps(auth.list_api_keys(), default=str)     # secret not stored
 
     scanner = TestClient(app)
     headers = {"Authorization": f"Bearer {key}"}
