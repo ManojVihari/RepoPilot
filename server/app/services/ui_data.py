@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 from app.services import docs_store
 from app.services.architecture_store import has_architecture, load_architecture
 from app.services import doc_service
+from mergeclear import contracts
 
 
 def _versions(repo, api):
@@ -181,12 +182,14 @@ _CHANGE_AREAS = (
     ("VALIDATION", "Validation"), ("SECURITY", "Security"), ("ERROR_STATUS", "Status codes"), ("SUCCESS_STATUS", "Status codes"),
 )
 _SEVERITY_ORDER = {"breaking": 0, "minor": 1, "additive": 2}
-_LEVEL_TEXT = {
-    "high": ("High impact", "danger", "Clients and other parts of the system are likely to break without changes."),
-    "medium": ("Medium impact", "warn", "The contract changed in a breaking way, but no callers were found in the scanned code."),
-    "low": ("Low impact", "ok", "Changes are backwards compatible for existing clients."),
-    "none": ("No impact", "ok", "Nothing in the API contract or its dependencies changed."),
+# same verdicts as `mergeclear check`
+_VERDICT_TEXT = {
+    contracts.HOLD: ("Hold before merging", "danger", "Breaking changes: existing clients fail until they are updated."),
+    contracts.REVIEW: ("Review before merging", "warn", "Changes clients may notice, such as new error codes or new downstream systems."),
+    contracts.CLEAR: ("Clear to merge", "ok", "No change existing clients could notice."),
 }
+# documentation-only analysis (no scanner data) only has an impact level
+_LEVEL_VERDICT = {"high": contracts.HOLD, "medium": contracts.HOLD, "low": contracts.REVIEW, "none": contracts.CLEAR}
 _GROUP_LABELS = {"databases": "Databases", "caches": "Caches", "messaging": "Messaging",
                  "external_apis": "External services", "other": "Other"}
 
@@ -207,7 +210,15 @@ def impact_view(impact: dict) -> dict:
     bc = impact.get("breaking_changes") or {}
     changes = sorted(bc.get("changes") or [], key=lambda c: _SEVERITY_ORDER.get(c.get("severity"), 3))
     level = bc.get("impact_level") or "none"
-    title, tone, explanation = _LEVEL_TEXT.get(level, _LEVEL_TEXT["none"])
+    if impact.get("source") == "scanner":
+        verdict = contracts.verdict(changes, impact.get("downstream_changes"))
+    else:
+        verdict = _LEVEL_VERDICT.get(level, contracts.CLEAR)
+    title, tone, explanation = _VERDICT_TEXT[verdict]
+    if verdict == contracts.CLEAR and not changes and not impact.get("downstream_changes"):
+        explanation = "Nothing in the API contract or its dependencies changed."
+    if verdict == contracts.HOLD and impact.get("source") == "scanner" and not (impact.get("consumers") or impact.get("shared_resources")):
+        explanation += " No callers were found in the scanned code; external clients may still exist."
 
     affected = []
     for c in impact.get("consumers") or []:
@@ -249,7 +260,7 @@ def impact_view(impact: dict) -> dict:
                         for g, items in (impact.get("downstream") or {}).items() if items]
 
     return {
-        "level": level, "title": title, "tone": tone, "explanation": explanation, "facts": facts,
+        "level": level, "verdict": verdict, "title": title, "tone": tone, "explanation": explanation, "facts": facts,
         "changes": [{**c, "area": change_area(c.get("type"))} for c in changes],
         "breaking": breaking,
         "affected": affected,

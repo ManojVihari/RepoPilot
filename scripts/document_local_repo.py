@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate complete DocAI documentation for a local repository (local testing).
+Generate complete Mergeclear documentation for a local repository, in-process (local testing).
 
 Scans every endpoint of the folder - no git history or commit needed - and
 writes the docs, versions and architecture model exactly like the server's
@@ -10,13 +10,15 @@ writes the docs, versions and architecture model exactly like the server's
     python scripts/document_local_repo.py ~/code/my-service
 
     # without Ollama, into a throwaway folder, starting clean
-    python scripts/document_local_repo.py ~/code/my-service --no-llm --data-dir /tmp/docai --fresh
+    python scripts/document_local_repo.py ~/code/my-service --no-llm --data-dir /tmp/mergeclear --fresh
 
     # send to a running server instead of generating in-process
     python scripts/document_local_repo.py ~/code/my-service --server http://localhost:8000
 
 Then view it with:  cd server && python run.py   ->  http://localhost:8000/ui
-(with --data-dir, start the server with the same DOCAI_DOCS_DIR / DOCAI_DATABASE_DIR)
+(with --data-dir, start the server with the same MERGECLEAR_DOCS_DIR / MERGECLEAR_DATABASE_DIR)
+
+In CI or against a running server, prefer the CLI:  mergeclear scan --push URL
 """
 import argparse
 import json
@@ -33,12 +35,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("repo", help="Path to the local repository / project folder")
-    parser.add_argument("--name", help="Repository name in DocAI (default: folder name)")
+    parser.add_argument("--name", help="Repository name in Mergeclear (default: folder name)")
     parser.add_argument("--label", help="Version label recorded as the commit (default: local-<timestamp>)")
     parser.add_argument("--no-llm", action="store_true", help="Do not call Ollama; build docs from scanner data only")
     parser.add_argument("--data-dir", help="Write docs/ and database/ under this folder instead of server/")
     parser.add_argument("--fresh", action="store_true", help="Delete existing docs/versions/architecture of this repo first")
-    parser.add_argument("--server", help="POST the scan to a running DocAI server instead of generating in-process")
+    parser.add_argument("--server", help="send the scan to a running Mergeclear server instead (uses MERGECLEAR_TOKEN)")
     parser.add_argument("--save-json", help="Also write the raw scanner output to this file")
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logs")
     return parser.parse_args()
@@ -93,10 +95,10 @@ def main():
     # Environment must be set before the server modules are imported
     if args.data_dir:
         data_dir = os.path.abspath(args.data_dir)
-        os.environ["DOCAI_DOCS_DIR"] = os.path.join(data_dir, "docs")
-        os.environ["DOCAI_DATABASE_DIR"] = os.path.join(data_dir, "database")
+        os.environ["MERGECLEAR_DOCS_DIR"] = os.path.join(data_dir, "docs")
+        os.environ["MERGECLEAR_DATABASE_DIR"] = os.path.join(data_dir, "database")
     if args.no_llm:
-        os.environ["DOCAI_LLM"] = "off"
+        os.environ["MERGECLEAR_LLM"] = "off"
 
     sys.path[:0] = [os.path.join(ROOT, "scanner"), os.path.join(ROOT, "server")]
 
@@ -106,7 +108,7 @@ def main():
     )
 
     # ---------- scan ----------
-    from docai.core.scanner import Scanner
+    from mergeclear.core.scanner import Scanner
 
     started = time.time()
     result = Scanner().scan_full(repo_path, label=label)
@@ -128,11 +130,13 @@ def main():
 
     # ---------- send to a running server ----------
     if args.server:
-        import requests
+        from mergeclear.cli import CliError, push_report
 
-        response = requests.post(f"{args.server.rstrip('/')}/analyze", json=result, timeout=120)
-        response.raise_for_status()
-        print(f"Sent to {args.server} ({response.json().get('status')}); docs are generated in the background.")
+        try:
+            answer = push_report(result, args.server, os.environ.get("MERGECLEAR_TOKEN"))
+        except CliError as e:
+            sys.exit(str(e))
+        print(f"Sent to {args.server} ({answer.get('status')}); docs are generated in the background.")
         print(f"View: {args.server.rstrip('/')}/ui/{name}"
               + (f"  ·  {args.server.rstrip('/')}/ui/{name}/architecture" if result.get("architecture") else ""))
         return 0
@@ -192,7 +196,7 @@ def main():
 
     env = ""
     if args.data_dir:
-        env = f"DOCAI_DOCS_DIR={DOCS_DIR} DOCAI_DATABASE_DIR={DATABASE_DIR} "
+        env = f"MERGECLEAR_DOCS_DIR={DOCS_DIR} MERGECLEAR_DATABASE_DIR={DATABASE_DIR} "
     print("\nView it:")
     print(f"  cd {os.path.join(ROOT, 'server')} && {env}python run.py")
     print(f"  http://localhost:8000/ui/{name}")

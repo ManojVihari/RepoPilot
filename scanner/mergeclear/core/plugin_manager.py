@@ -10,7 +10,7 @@ class PluginManager:
     def load_plugins(self):
 
         plugins = []
-        package = "docai.plugins"
+        package = "mergeclear.plugins"
 
         try:
             base_module = importlib.import_module(package)

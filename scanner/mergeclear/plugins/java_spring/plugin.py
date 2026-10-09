@@ -1,6 +1,6 @@
 import logging
-from docai.core.files import iter_source_files
-from docai.plugins.base_plugin import BasePlugin
+from mergeclear.core.files import iter_source_files
+from mergeclear.plugins.base_plugin import BasePlugin
 from .extractor import SpringExtractor
 
 logger = logging.getLogger(__name__)

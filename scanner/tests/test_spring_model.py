@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from docai.plugins.java_spring.analyzer import parse_sql
-from docai.plugins.java_spring.catalog import classify_library
-from docai.plugins.java_spring.extractor import SpringExtractor
+from mergeclear.plugins.java_spring.analyzer import parse_sql
+from mergeclear.plugins.java_spring.catalog import classify_library
+from mergeclear.plugins.java_spring.extractor import SpringExtractor
 
 FIXTURE = Path(__file__).parent / "fixtures" / "spring_shop"
 

@@ -3,9 +3,9 @@ import textwrap
 
 import pytest
 
-from docai.core.scanner import Scanner
-from docai.plugins.java_spring.extractor import SpringExtractor
-from docai.plugins.python_fastapi.extractor import FastAPIExtractor
+from mergeclear.core.scanner import Scanner
+from mergeclear.plugins.java_spring.extractor import SpringExtractor
+from mergeclear.plugins.python_fastapi.extractor import FastAPIExtractor
 
 
 CONTROLLER = """

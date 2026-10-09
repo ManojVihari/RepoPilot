@@ -26,7 +26,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from docai.core.treesitter import get_text
+from mergeclear.core.treesitter import get_text
 
 PRIMITIVES = {
     "byte", "short", "int", "long", "float", "double", "boolean", "char", "void"

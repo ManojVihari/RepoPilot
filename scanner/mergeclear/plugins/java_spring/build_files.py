@@ -6,7 +6,7 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
-from docai.core.files import SKIP_DIRS
+from mergeclear.core.files import SKIP_DIRS
 from .catalog import classify_library
 
 logger = logging.getLogger(__name__)

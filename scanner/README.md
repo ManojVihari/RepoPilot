@@ -1,53 +1,58 @@
-# DocAI scanner
+# mergeclear CLI
 
-Static analysis for API documentation and architecture discovery. Runs in CI,
-parses the repository with tree-sitter (no compilation, no running the app)
-and sends the result to the DocAI server.
-
-```bash
-pip install -e scanner
-docai-scan --repo . --commit "$GIT_COMMIT" --server https://docai.internal   # or omit --server to print JSON
-docai-scan --repo . --commit HEAD -v                                         # debug logs on stderr
-docai-scan --repo ~/code/my-service --all                                  # every endpoint, no git needed
-```
-
-### Local testing: document a whole repository
-
-`scripts/document_local_repo.py` scans every endpoint of a local folder and
-generates the docs, versions and architecture model in-process, without CI,
-commits or a running server:
+Static analysis for API contracts and dependencies. It parses a repository
+with tree-sitter (no compilation, no running the app), writes a report, and
+compares reports to give a change a verdict: **Clear**, **Review** or **Hold**.
+It only talks to git and the file system, so it runs the same on a laptop, in
+any CI system, in a git hook or a cron job.
 
 ```bash
-python scripts/document_local_repo.py ~/code/my-service                   # into server/docs + server/database
-python scripts/document_local_repo.py ~/code/my-service --no-llm \
-    --data-dir /tmp/docai --fresh                                         # no Ollama, throwaway folder, clean start
-python scripts/document_local_repo.py ~/code/my-service --server http://localhost:8000   # via a running server
+pipx install ./scanner                                   # from this repository (not on PyPI yet)
+
+mergeclear check --base origin/main                      # this checkout vs main: verdict + exit code
+mergeclear scan --out report.json                        # every endpoint of the current folder
+mergeclear scan --since origin/main --out changes.json   # only endpoints touched since a ref
+mergeclear scan --push https://mergeclear.internal       # send to a Mergeclear server (MERGECLEAR_TOKEN)
+mergeclear push report.json --server https://...         # upload a saved report
+mergeclear diff base.json head.json --format markdown    # compare two reports
+mergeclear check head.json --against base.json --fail-on review
 ```
 
-It prints where the docs went and how to open them (`cd server && python run.py`,
-then `/ui/<name>` and `/ui/<name>/architecture`). Re-running only creates new
-versions for endpoints whose contract changed. Options: `--name`, `--label`,
-`--save-json`, `-v`.
+Exit codes: `0` ok / clear, `1` check failed, `2` error. Logs go to stderr, so
+stdout stays clean JSON or Markdown. `-v` shows the scanner's own progress.
+See the [main README](../README.md) for settings and pipeline recipes.
 
-The scanner diffs `<commit>^..<commit>`. When the parent is not available
-(first commit, shallow clone) every tracked file counts as changed.
+`--commit SHA` scans the endpoints a single commit touched (it diffs
+`<commit>^..<commit>`; without a parent, as on a first commit or a shallow
+clone, every tracked file counts as changed). Removed endpoints are only
+detected when both compared reports are full scans.
+
+For local testing, `scripts/document_local_repo.py` scans a folder and
+generates the server's docs, versions and architecture model in-process,
+without a running server.
 
 ## Output
 
 ```jsonc
 {
   "scanner_version": "2.0",
+  "scanner": { "name": "mergeclear", "version": "0.2.0" },
   "repository": "shop",
-  "commit": "abc123",
+  "commit": "abc123...",
+  "branch": "main",                // null on detached checkouts unless --branch is given
+  "dirty": false,                  // uncommitted edits were scanned
+  "scan_mode": "full",             // or "changes" (--commit / --since)
+  "scanned_at": "2026-10-09T10:00:00+00:00",
   "frameworks": ["spring"],
-  "routes": [ /* endpoints impacted by the commit, see below */ ],
+  "routes": [ /* every endpoint, or those a change touched; see below */ ],
   "architecture": { "spring": { /* application model, see below */ } }
 }
 ```
 
-### `routes[]` - impacted endpoints (Spring)
+### `routes[]` - endpoints (Spring)
 
-Only endpoints affected by the commit are listed. Impact is precise: git diff
+A full scan lists every endpoint. With `--commit`/`--since` only endpoints
+affected by the change are listed, and impact is precise: git diff
 hunks are mapped to the methods they touch, then followed backwards through
 the resolved call graph (interface calls dispatch to their implementations,
 `@EventListener`s are linked to `publishEvent`). Changes to DTOs, entities and

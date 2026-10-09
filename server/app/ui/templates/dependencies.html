@@ -13,7 +13,7 @@
         <h2 style="font-size:1.2rem">{% if v1 %}Impact of v{{ v1 }} → v{{ v2 }}{% else %}Dependencies of v{{ v2 }}{% endif %}</h2>
         <p class="small muted" style="margin-top:4px">
             {% if scanner %}Based on the scanned source code{% if v1 and not impact_data.has_route_data.v1 %} (v{{ v1 }} predates structured data){% endif %}
-            {% else %}Estimated from the documentation text — re-scan with RepoPilot 2.0+ for exact results{% endif %}
+            {% else %}Estimated from the documentation text — re-scan with the mergeclear scanner for exact results{% endif %}
         </p>
     </div>
     {% if has_architecture %}<a class="btn btn-sm btn-ghost" href="/ui/{{ repo }}/architecture">{{ icon('arch') }} Architecture</a>{% endif %}

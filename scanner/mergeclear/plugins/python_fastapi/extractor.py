@@ -1,7 +1,7 @@
 from tree_sitter import Parser, Language, Query, QueryCursor
 from tree_sitter_python import language as python_language
-from docai.core.files import iter_source_files
-from docai.core.treesitter import normalize_captures, get_parent, get_text, reachable
+from mergeclear.core.files import iter_source_files
+from mergeclear.core.treesitter import normalize_captures, get_parent, get_text, reachable
 import logging
 import os
 import re

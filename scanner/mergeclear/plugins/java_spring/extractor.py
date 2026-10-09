@@ -12,8 +12,8 @@ from typing import Dict, List, Optional, Set, Tuple
 from tree_sitter import Language, Parser
 from tree_sitter_java import language as java_language
 
-from docai.core.files import iter_source_files
-from docai.core.treesitter import reachable
+from mergeclear.core.files import iter_source_files
+from mergeclear.core.treesitter import reachable
 
 from .analyzer import SpringAnalyzer, dedupe
 from .architecture import ArchitectureBuilder

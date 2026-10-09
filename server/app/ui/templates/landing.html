@@ -1,14 +1,14 @@
 {% extends "_ui/base.html" %}
 {% from "_ui/macros.html" import icon %}
-{% block title %}RepoPilot · API docs that keep up with your code{% endblock %}
+{% block title %}Know what a change breaks before you merge it{% endblock %}
 {% block page_class %}landing{% endblock %}
 {% block content %}
 
 <section class="lp-hero" aria-labelledby="lp-title">
     <div class="lp-hero-text">
-        <p class="eyebrow">Living API documentation</p>
-        <h1 id="lp-title">API docs that keep up with your code</h1>
-        <p class="lp-lead">RepoPilot reads your repository on every commit, documents each endpoint, records how its contract changes, and shows what a change will break before it ships.</p>
+        <p class="eyebrow">Change confidence for API teams</p>
+        <h1 id="lp-title">Know what a change breaks before you merge it</h1>
+        <p class="lp-lead">Mergeclear reads your code, maps every endpoint, contract and dependency, and gives each change a verdict: <strong>Clear</strong>, <strong>Review</strong> or <strong>Hold</strong>. Living docs, an architecture map and QA plans come with it.</p>
         <div class="lp-cta">
             <a class="btn btn-primary btn-lg" href="/ui">{% if api_count %}Open dashboard{% else %}Get started{% endif %} {{ icon('arrow-right') }}</a>
             <a class="btn btn-lg" href="#how">How it works</a>
@@ -27,7 +27,7 @@
                 <div class="lp-preview-title">Places a new order</div>
                 <div class="verdict verdict-danger lp-mini-verdict">
                     <div class="verdict-icon">{{ icon('alert') }}</div>
-                    <div><strong>High impact</strong><div class="small muted">3 breaking changes · 2 endpoints sharing data</div></div>
+                    <div><strong>Hold before merging</strong><div class="small muted">3 breaking changes · 2 endpoints sharing data</div></div>
                 </div>
                 <ul class="lp-mini-changes">
                     <li><span class="sev sev-breaking">Breaking</span><span><code>lines.warehouse</code> is now required</span></li>
@@ -45,16 +45,16 @@
 </section>
 
 <section class="lp-section" aria-labelledby="features-title">
-    <h2 id="features-title" class="lp-h2">Everything about an API, in one place</h2>
-    <p class="lp-sub">From what an endpoint does to what it touches, each page answers one question.</p>
+    <h2 id="features-title" class="lp-h2">From a code change to a release you can trust</h2>
+    <p class="lp-sub">Every change gets a verdict, and every verdict comes with the evidence behind it.</p>
     <div class="lp-features">
         {% for f in [
+            ('check-circle', 'A verdict for every change', 'Clear, Review or Hold, decided from the API contract: request and response fields, validation, status codes, security and endpoints. The same verdict on your laptop, in any CI and on the dashboard.'),
             ('book', 'Documentation that writes itself', 'Every endpoint gets a readable page: purpose, request, response, errors and security, with clear titles generated from what it actually does.'),
             ('history', 'Versions and diffs', 'A new version is recorded only when the contract changes. Compare any two versions side by side with only the changed lines shown.'),
             ('alert', 'Change impact before release', 'See which changes are breaking, who calls the API, which endpoints share its tables, caches and topics, and what to do about it.'),
             ('arch', 'Architecture map', 'Services, modules, databases, caches, message brokers and external APIs, discovered from source and drawn as a navigable map.'),
             ('beaker', 'QA plans', 'Test plans for each version, with regression cases for what changed, coverage by area and a printable checklist.'),
-            ('sparkle', 'Ask your docs', 'Ask questions in plain language, such as "which endpoints write to the orders table?", and get answers with links to the source pages.'),
         ] %}
         <article class="lp-feature">
             <div class="lp-feature-icon">{{ icon(f[0]) }}</div>
@@ -67,22 +67,22 @@
 
 <section class="lp-section" id="how" aria-labelledby="how-title" tabindex="-1">
     <h2 id="how-title" class="lp-h2">How it works</h2>
-    <p class="lp-sub">Three steps, no changes to your application.</p>
+    <p class="lp-sub">Three steps, no changes to your application, and no lock-in to a CI system.</p>
     <ol class="lp-steps">
         <li>
             <span class="lp-step-num" aria-hidden="true">1</span>
             <h3>Scan</h3>
-            <p>The scanner parses your code with tree-sitter in CI or locally. It doesn't need a build, a running app or annotations. It finds endpoints, request and response models, validation, security and every database, cache, queue and HTTP call.</p>
+            <p>The open-source <code>mergeclear</code> CLI parses your code with tree-sitter on a laptop, in any pipeline or in a git hook. No build, no running app, no annotations. It finds endpoints, request and response models, validation, security and every database, cache, queue and HTTP call.</p>
         </li>
         <li>
             <span class="lp-step-num" aria-hidden="true">2</span>
-            <h3>Document</h3>
-            <p>The server turns the scan into documentation with your local Ollama model, versions it by contract, and links it to the architecture. Without a model it still builds docs from the scanned facts.</p>
+            <h3>Check</h3>
+            <p><code>mergeclear check</code> compares your branch with the base and exits non-zero on Hold, so any CI can gate a merge. It also writes a Markdown summary you can post on the pull request.</p>
         </li>
         <li>
             <span class="lp-step-num" aria-hidden="true">3</span>
-            <h3>Review</h3>
-            <p>Browse the dashboard, compare versions, check the impact of a change and hand QA a plan, all before the change is merged.</p>
+            <h3>Explore</h3>
+            <p>Push reports to your self-hosted server for versioned docs written by your local model, the architecture map, impact across services and QA plans.</p>
         </li>
     </ol>
 </section>
@@ -101,7 +101,7 @@
         <div class="lp-feature-icon">{{ icon('lock') }}</div>
         <div>
             <h3>Private by default</h3>
-            <p class="muted">Your code is analysed on your own machines and documentation is written by a local model. Nothing is sent to a third-party service.</p>
+            <p class="muted">Self-hosted. Your code is analysed on your own machines and documentation is written by a local model. Nothing is sent to a third-party service.</p>
         </div>
     </div>
 </section>
@@ -110,16 +110,16 @@
     <h2 id="start-title" class="lp-h2">Try it on a repository</h2>
     <div class="lp-start">
         <div>
-            <p class="small muted">Document a whole local repository</p>
-            <pre><code>python scripts/document_local_repo.py ~/code/my-service</code></pre>
+            <p class="small muted">Install the scanner from the Mergeclear repository</p>
+            <pre><code>pipx install ./scanner</code></pre>
         </div>
         <div>
-            <p class="small muted">Start the server and open the dashboard</p>
-            <pre><code>cd server &amp;&amp; python run.py</code></pre>
+            <p class="small muted">Check your branch against main: prints the verdict, exits 1 on Hold</p>
+            <pre><code>mergeclear check --base origin/main</code></pre>
         </div>
         <div>
-            <p class="small muted">Or scan every commit in CI</p>
-            <pre><code>docai-scan --repo . --commit "$GIT_COMMIT" --server https://repopilot.internal</code></pre>
+            <p class="small muted">Send scans to your Mergeclear server for docs and architecture</p>
+            <pre><code>MERGECLEAR_TOKEN=… mergeclear scan --push https://mergeclear.internal</code></pre>
         </div>
     </div>
     <div class="lp-cta" style="margin-top:28px">
@@ -127,5 +127,5 @@
     </div>
 </section>
 
-<footer class="lp-footer small muted">RepoPilot: API documentation, change impact and QA plans from your source code.</footer>
+<footer class="lp-footer small muted">Mergeclear: change verdicts, API docs, architecture and QA plans from your source code.</footer>
 {% endblock %}

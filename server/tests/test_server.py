@@ -253,7 +253,7 @@ def test_architecture_and_dependency_pages_render(two_versions):
     deps = two_versions.get("/ui/spring-shop/OrderController.create/dependencies", params={"v1": 1, "v2": 2})
     assert deps.status_code == 200
     assert "Based on the scanned source code" in deps.text
-    assert "High impact" in deps.text or "Medium impact" in deps.text
+    assert "Hold before merging" in deps.text
     assert "Request body" in deps.text          # change area instead of the raw type code
     assert "REQUEST_FIELD_ADDED" not in deps.text.split("<script")[0]
     assert "What this API uses" in deps.text
@@ -445,7 +445,7 @@ def test_api_pages_mark_the_current_tab(two_versions):
 
 def test_landing_page_describes_the_product(two_versions):
     page = two_versions.get("/").text
-    assert "API docs that keep up with your code" in page
+    assert "Know what a change breaks before you merge it" in page
     assert 'href="/ui"' in page and 'id="how"' in page
     assert "Documenting 4 APIs across 1 repository" in page
 
@@ -565,3 +565,22 @@ def test_architecture_page_uses_the_layered_diagram(two_versions):
     layered = two_versions.get("/api/architecture/layered", params={"repo": "spring-shop"}).json()
     assert [c["title"] for c in layered["columns"]][-1] == "Data & infrastructure"
     assert two_versions.get("/api/architecture/layered", params={"repo": "nope"}).status_code == 404
+
+
+def test_uploads_need_the_token_when_one_is_configured(client, monkeypatch):
+    from app.api import routes as r
+    monkeypatch.setattr(r, "process_routes", lambda *a: None)
+    monkeypatch.setattr(r, "save_architecture", lambda *a: None)
+    report = {"scanner_version": "2.0", "repository": "shop", "commit": "abc", "routes": []}
+
+    assert client.post("/analyze", json=report).status_code == 200          # no token configured: open
+    monkeypatch.setattr(r, "INGEST_TOKEN", "s3cret")
+    assert client.post("/analyze", json=report).status_code == 401
+    assert client.post("/analyze", json=report, headers={"Authorization": "Bearer wrong"}).status_code == 401
+    assert client.post("/analyze", json=report, headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    bad = client.post("/analyze", json={**report, "repository": "../etc"}, headers={"Authorization": "Bearer s3cret"})
+    assert bad.status_code == 400
+
+
+def test_health_endpoint(client):
+    assert client.get("/healthz").json()["status"] == "ok"

@@ -55,7 +55,7 @@ class AnalyzeRequest(BaseModel):
     repository: str
     commit: str
 
-    # 🔥 FIX HERE
+    # older scanners send one framework, newer ones a list
     framework: Optional[str] = None
     frameworks: Optional[List[str]] = []
 

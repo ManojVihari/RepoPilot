@@ -1,4 +1,5 @@
 import difflib
+import hmac
 import re
 from datetime import datetime
 from typing import List
@@ -6,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from app.config import LLM_ENABLED, TEMPLATES_DIR
+from app.config import INGEST_TOKEN, LLM_ENABLED, TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
 from app.services import docs_store, ui_data
 from app.services.architecture_view import layered_component_view, layered_system_view
@@ -102,8 +103,22 @@ def _default_versions(versions, v1, v2):
     return v1, v2
 
 
+def _authorized(http_request: Request) -> bool:
+    """Uploads need MERGECLEAR_TOKEN as a bearer token when the server has one configured."""
+    if not INGEST_TOKEN:
+        return True
+    scheme, _, token = (http_request.headers.get("authorization") or "").partition(" ")
+    return scheme.lower() == "bearer" and hmac.compare_digest(token.strip(), INGEST_TOKEN)
+
+
 @router.post("/analyze")
-async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks, http_request: Request):
+    """Receive a scan report from `mergeclear scan --push` / `mergeclear push`."""
+    if not _authorized(http_request):
+        return JSONResponse({"error": "missing or invalid token"}, status_code=401,
+                            headers={"WWW-Authenticate": "Bearer"})
+    if not docs_store.is_safe_name(request.repository):
+        return JSONResponse({"error": f"invalid repository name {request.repository!r} (use --name)"}, status_code=400)
 
     if request.architecture:
         background_tasks.add_task(

@@ -1,8 +1,8 @@
 import logging
 import subprocess
 import os
-from docai.core.files import iter_source_files
-from docai.core.plugin_manager import PluginManager
+from mergeclear.core.files import iter_source_files
+from mergeclear.core.plugin_manager import PluginManager
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,16 @@ class Scanner:
             return self._empty_result(repo_path, commit)
 
         return self._run_plugins(repo_path, commit, changed_files, full=False)
+
+    def scan_since(self, repo_path, ref, label=None):
+        """Endpoints touched by every change between `ref` and the working tree (e.g. a branch vs main)."""
+        files = self._git(repo_path, "diff", "--name-only", f"{ref}...HEAD")
+        files += self._git(repo_path, "diff", "--name-only", "HEAD")      # uncommitted edits too
+        changed = sorted({f for f in files if f.endswith(SOURCE_EXTENSIONS)})
+        logger.info("%d source files changed since %s", len(changed), ref)
+        if not changed:
+            return self._empty_result(repo_path, label)
+        return self._run_plugins(repo_path, label, changed, full=False)
 
     def scan_full(self, repo_path, label="local"):
         """
@@ -81,6 +91,7 @@ class Scanner:
             "scanner_version": SCANNER_VERSION,
             "repository": os.path.basename(os.path.abspath(repo_path)),
             "commit": commit,
+            "scan_mode": "full" if full else "changes",
             "frameworks": detected_frameworks,
             "routes": all_routes,
             "architecture": architecture
@@ -116,8 +127,9 @@ class Scanner:
     def _empty_result(self, repo_path, commit):
         return {
             "scanner_version": SCANNER_VERSION,
-            "repository": os.path.basename(repo_path),
+            "repository": os.path.basename(os.path.abspath(repo_path)),
             "commit": commit,
+            "scan_mode": "changes",
             "frameworks": [],
             "routes": [],
             "architecture": {}
