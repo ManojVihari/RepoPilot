@@ -65,3 +65,36 @@
   <div><strong>{{ title }}</strong>{% if body %}<div class="small muted">{{ body }}</div>{% endif %}</div>
 </div>
 {%- endmacro %}
+
+{# Background jobs: uploads being documented, and recent failures. Updates itself (static/jobs.js). #}
+{% macro jobs_panel(panel, nonce) -%}
+{% if panel.active or panel.failed %}
+<section class="card jobs-panel" aria-labelledby="jobs-title" data-jobs-panel data-repo="{{ panel.repo or '' }}">
+    <div class="card-header"><h2 id="jobs-title" class="small">{{ icon('refresh') }} Processing uploads</h2>
+        {% if panel.active %}<span class="xs muted" aria-live="polite" data-jobs-count>{{ panel.active | length }} in progress</span>{% endif %}</div>
+    <ul class="jobs-list">
+        {% for job in panel.active %}
+        <li data-job-id="{{ job.id }}">
+            <span class="job-status job-{{ job.status }}">{{ job.label }}</span>
+            <div class="job-main">
+                <div><a href="/ui/{{ job.repo }}"><strong>{{ job.repo }}</strong></a> <code class="xs">{{ job.commit_short }}</code></div>
+                <div class="progress" role="progressbar" aria-label="Endpoints documented for {{ job.repo }}"
+                     aria-valuemin="0" aria-valuemax="{{ job.progress_total or 0 }}" aria-valuenow="{{ job.progress_done or 0 }}"><span style="width:{{ job.percent }}%"></span></div>
+                <div class="xs muted" data-job-text>{% if job.progress_total %}{{ job.progress_done }} of {{ job.progress_total }} endpoints{% else %}waiting for a worker{% endif %}{% if job.attempts > 1 %} · attempt {{ job.attempts }}{% endif %}</div>
+            </div>
+        </li>
+        {% endfor %}
+        {% for job in panel.failed %}
+        <li>
+            <span class="job-status job-failed">Failed</span>
+            <div class="job-main">
+                <div><a href="/ui/{{ job.repo }}"><strong>{{ job.repo }}</strong></a> <code class="xs">{{ job.commit_short }}</code> <span class="xs muted">{{ job.when }} · {{ job.attempts }} attempt{{ 's' if job.attempts != 1 }}</span></div>
+                <div class="xs job-error">{{ job.error_line }}</div>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</section>
+{% if panel.active %}<script nonce="{{ nonce }}" src="/static/jobs.js" defer></script>{% endif %}
+{% endif %}
+{%- endmacro %}

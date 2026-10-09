@@ -1,16 +1,18 @@
+import json
+import logging
+
+from app.services import docs_store
 from app.services.doc_generator import APIDocGenerator
 from app.services.markdown_builder import MarkdownBuilder
-from app.services.markdown_writer import MarkdownWriter
-from app.services.version_service import VersionService
-import json
 from app.services.signature_service import SignatureService
-from app.services import docs_store
+
+logger = logging.getLogger(__name__)
 
 signature_service = SignatureService()
-generator=APIDocGenerator()
+generator = APIDocGenerator()
 markdown_builder = MarkdownBuilder()
-markdown_writer = MarkdownWriter()
-version_service = VersionService()
+
+
 def doc_name(route):
     """
     Name the docs of a route are stored under.
@@ -38,57 +40,53 @@ def _stable_title(repository, api_name, explanation):
     return new_title
 
 
-def process_routes(routes, commit, repository):
+def _explain(route) -> dict:
+    raw = generator.generate_explanation(route)
+    try:
+        explanation = json.loads(raw)
+        if isinstance(explanation, str):
+            explanation = json.loads(explanation)
+        if isinstance(explanation, dict):
+            return explanation
+    except Exception:
+        pass
+    return {"overview": "LLM parsing failed", "business_logic": "", "change_impact": ""}
 
-    for route in routes:
+
+def process_routes(routes, commit, repository, progress=None) -> dict:
+    """
+    Document every route whose contract changed since its latest version.
+
+    `progress(done, total)` is called after each route. Returns counts:
+    {"created": n, "unchanged": n}.
+    """
+    created = unchanged = 0
+    total = len(routes)
+
+    for done, route in enumerate(routes, start=1):
         api_name = doc_name(route)
-        print(f"Processing {api_name}...")
         signature = signature_service.generate(route)
 
-        should_create, version = version_service.should_create_version(
-            repository,
-            api_name,
-            signature
-        )
+        # cheap check first: skip the LLM when the contract is unchanged
+        if docs_store.latest_signature(repository, api_name) == signature:
+            unchanged += 1
+        else:
+            explanation = _explain(route)
+            explanation["title"] = _stable_title(repository, api_name, explanation)
+            documentation = markdown_builder.build(route, explanation)
 
-        if not should_create:
-            print(f"[SKIPPED] {api_name}")
-            continue
-        
-        print(f"[PROCESSING] {api_name} - Version: {version}")
-        explanation_raw = generator.generate_explanation(route)
+            # decided again under the per-API lock: another worker may have stored it meanwhile
+            version = docs_store.save_version_if_changed(
+                repository, api_name, signature, commit, documentation,
+                route=route.model_dump(mode="json"), title=explanation["title"],
+            )
+            if version is None:
+                unchanged += 1
+            else:
+                created += 1
+                logger.info("documented %s/%s v%d", repository, api_name, version)
 
-        try:
-            explanation = json.loads(explanation_raw)
+        if progress:
+            progress(done, total)
 
-            if isinstance(explanation, str):
-                explanation = json.loads(explanation)
-
-        except Exception:
-            explanation = {
-                "overview": "LLM parsing failed",
-                "business_logic": "",
-                "change_impact": ""
-            }
-
-        explanation["title"] = _stable_title(repository, api_name, explanation)
-
-        documentation = markdown_builder.build(route, explanation)
-
-        markdown_writer.write(
-            repository=repository,
-            api_name=api_name,
-            version=version,
-            content=documentation
-        )
-
-        version_service.save_version(
-            repository=repository,
-            api_name=api_name,
-            version=version,
-            signature=signature,
-            commit_hash=commit,
-            content=documentation,
-            route=route.model_dump(mode="json"),
-            title=explanation["title"]
-        )
+    return {"created": created, "unchanged": unchanged}

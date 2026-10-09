@@ -133,8 +133,9 @@ exec mergeclear check --base origin/main
 
 **Keep the server's docs up to date** (after merges to main, or from cron)
 ```bash
-MERGECLEAR_TOKEN=... mergeclear scan --branch main --push https://mergeclear.internal
+MERGECLEAR_TOKEN=... mergeclear scan --branch main --push https://mergeclear.internal --wait
 ```
+(`--wait` blocks until the server has documented the upload and fails if it could not.)
 
 **No Python on the build machine?** Use the container (the repository is
 mounted at `/repo`, so pass `--name` or keep a git remote for the repository name):
@@ -150,16 +151,36 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" mergeclear/scanner check 
 ### With Docker Compose
 
 ```bash
-cp .env.example .env                    # set MERGECLEAR_TOKEN (openssl rand -hex 32)
-docker compose up -d                    # http://localhost:8000
-docker compose --profile llm up -d      # optional: + Ollama (set MERGECLEAR_LLM=on in .env)
+cp .env.example .env            # set MERGECLEAR_TOKEN and MERGECLEAR_DB_PASSWORD (openssl rand -hex 24)
+docker compose up -d            # Postgres + server on http://localhost:8000
+docker compose --profile llm up -d                          # optional: + Ollama (MERGECLEAR_LLM=on in .env)
+docker compose --profile workers up -d --scale worker=3     # optional: more job workers
 ```
 
-The server runs as a non-root user, keeps everything in the `mergeclear-data`
-volume (`/data`), has a container healthcheck on `/healthz`, and refuses to
-start without `MERGECLEAR_TOKEN`. The `llm` profile adds an Ollama container
-and downloads `OLLAMA_MODEL` once into the `ollama-models` volume. Put it
-behind your usual reverse proxy for TLS.
+What runs:
+
+- **postgres** (`postgres:17-alpine`): all data, in the `postgres-data` volume.
+  Not published on the host; only the server and workers reach it.
+- **server**: web UI and API, plus `MERGECLEAR_WORKERS` (default 2) background
+  workers. Runs as a non-root user, waits for Postgres to be healthy, has a
+  healthcheck on `/healthz` (503 when the database is unreachable), and refuses
+  to start without `MERGECLEAR_TOKEN` and `MERGECLEAR_DB_PASSWORD`.
+- **worker** (profile `workers`): extra job workers on the same image. With an
+  LLM, documenting uploads is the slow part; scale this instead of the server.
+- **ollama** (profile `llm`): downloads `OLLAMA_MODEL` once into `ollama-models`.
+
+Put the server behind your usual reverse proxy for TLS. Back up the database with
+`docker compose exec postgres pg_dump -U mergeclear mergeclear > mergeclear.sql`.
+
+**How uploads are processed.** `/analyze` stores the report as a job and
+answers `202` with a `job_url` at once. Workers claim jobs from Postgres
+(`FOR UPDATE SKIP LOCKED`), report progress, and retry failures with backoff
+(3 attempts). A worker that dies loses its lease and the job is picked up again.
+Identical uploads that are still queued are merged, and version numbers are
+assigned under a per-API lock, so concurrent pipelines never collide. The
+dashboard shows uploads in progress and recent failures; `mergeclear scan --push
+--wait` blocks until the upload is documented. Job status: `GET /api/jobs`,
+`GET /api/jobs/{id}`.
 
 Building inside a restricted network:
 
@@ -180,6 +201,21 @@ pip install ./scanner -r server/requirements.txt
 cd server && python run.py              # http://localhost:8000 (development server with reload)
 ```
 
+Without `MERGECLEAR_DATABASE_URL` the server uses a SQLite file
+(`server/database/mergeclear.db`), fine for one person. Point it at Postgres for
+anything shared:
+
+```bash
+export MERGECLEAR_DATABASE_URL=postgresql+psycopg://mergeclear:secret@db.internal:5432/mergeclear
+python -m app.manage init-db             # tables (the server also creates them on start)
+python -m app.manage worker --count 2    # workers in their own process (set MERGECLEAR_WORKERS=0 on the server)
+```
+
+**Upgrading from a version before the database** (docs in `server/docs`, JSON
+in `server/database`): `cd server && python -m app.manage import-files`
+copies versions, titles, architecture models, QA plans and templates in. It can
+be run again safely.
+
 Then push scans to it (`mergeclear scan --push http://localhost:8000`), or
 document a local folder in-process without a running server:
 
@@ -190,8 +226,9 @@ python scripts/document_local_repo.py ~/code/my-service            # add --no-ll
 | Environment variable | Default | Purpose |
 |---|---|---|
 | `MERGECLEAR_TOKEN` | unset (uploads open) | Bearer token scanners must send to `/analyze`. **Set it in any shared setup.** |
-| `MERGECLEAR_DOCS_DIR` | `server/docs` | Generated documentation |
-| `MERGECLEAR_DATABASE_DIR` | `server/database` | Versions, architecture models, QA plans |
+| `MERGECLEAR_DATABASE_URL` | SQLite in `MERGECLEAR_DATABASE_DIR` | `postgresql+psycopg://user:password@host:5432/db` |
+| `MERGECLEAR_WORKERS` | `1` (`2` in compose) | Background job workers in the server process (`0`: run them separately) |
+| `MERGECLEAR_DATABASE_DIR` | `server/database` | Where the SQLite default lives |
 | `MERGECLEAR_LLM` | `on` | `off` builds docs from scanned facts only |
 | `OLLAMA_URL` | `http://localhost:11434/api/generate` | Ollama endpoint |
 | `OLLAMA_MODEL` | `mistral` | Model for docs, titles, summaries and QA plans |
@@ -216,7 +253,8 @@ Content-Security-Policy with a per-request script nonce.
 ```bash
 pip install -e ./scanner -r server/requirements.txt pytest
 (cd scanner && python -m pytest)
-(cd server && python -m pytest)
+(cd server && python -m pytest)                       # SQLite
+(cd server && MERGECLEAR_TEST_DATABASE_URL=postgresql+psycopg://... python -m pytest)   # the same suite on Postgres
 ```
 
 Licensed under the Apache License 2.0.

@@ -1,5 +1,5 @@
 {% extends "_ui/base.html" %}
-{% from "_ui/macros.html" import icon, method, stat %}
+{% from "_ui/macros.html" import icon, method, stat, jobs_panel %}
 {% block title %}Dashboard{% endblock %}
 {% block content %}
 <section class="hero" aria-labelledby="hero-title">
@@ -12,11 +12,13 @@
     </form>
 </section>
 
+{{ jobs_panel(jobs, request.state.csp_nonce) }}
+
 {% if not repos %}
 <div class="card empty" style="margin-top:32px">
     {{ icon('book') }}
     <h2>No documentation yet</h2>
-    <p class="muted">Document a repository locally with<br><code>python scripts/document_local_repo.py path/to/repo</code><br>or run the scanner in CI with <code>--server</code>.</p>
+    <p class="muted">Send a scan from any machine or pipeline with<br><code>mergeclear scan --push {{ request.base_url }}</code><br>or document a local folder with <code>python scripts/document_local_repo.py path/to/repo</code>.</p>
 </div>
 {% else %}
 

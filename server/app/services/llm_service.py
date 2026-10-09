@@ -4,10 +4,9 @@ and RAG-based search using local Ollama with Mistral model (no API keys required
 """
 import requests
 import re
-import json
-import os
 from typing import Optional, List, Dict
-from app.config import DOCS_DIR, OLLAMA_URL, OLLAMA_MODEL
+from app.config import OLLAMA_URL, OLLAMA_MODEL
+from app.services import docs_store
 
 
 def summarize_changes(v1_content: str, v2_content: str, api_name: str) -> Optional[str]:
@@ -150,23 +149,13 @@ def calculate_api_confidence(query: str, api: Dict) -> float:
     return min(1.0, score)
 
 
-def _titles(repo_path: str) -> Dict[str, str]:
-    """Display titles written next to the docs (docs/<repo>/.titles.json)."""
-    try:
-        with open(os.path.join(repo_path, ".titles.json"), "r", encoding="utf-8") as f:
-            return {api: entry.get("title") for api, entry in json.load(f).items() if entry.get("title")}
-    except (OSError, ValueError):
-        return {}
-
-
-def search_apis_rag(query: str, base_path: str = DOCS_DIR) -> List[Dict]:
+def search_apis_rag(query: str) -> List[Dict]:
     """
     Search for APIs using RAG (Retrieval Augmented Generation) with local LLM.
     Finds relevant APIs based on semantic understanding of user query.
     
     Args:
         query: Natural language search query (e.g., "user management API")
-        base_path: Base directory containing API documentation
         
     Returns:
         List of dictionaries with matched APIs: [{"repo": "...", "api": "...", "version": "..."}]
@@ -177,44 +166,11 @@ def search_apis_rag(query: str, base_path: str = DOCS_DIR) -> List[Dict]:
     """
     
     # Step 1: Collect all available APIs
-    available_apis = []
-    
-    if os.path.exists(base_path):
-        for repo in os.listdir(base_path):
-            if repo.startswith("."):
-                continue
-            
-            repo_path = os.path.join(base_path, repo)
-            if not os.path.isdir(repo_path):
-                continue
+    available_apis = [
+        {"repo": d["repo"], "api": d["api"], "title": d["title"], "version": d["version"]}
+        for d in docs_store.latest_docs()
+    ]
 
-            titles = _titles(repo_path)
-            
-            for api_name in os.listdir(repo_path):
-                if api_name.startswith("."):
-                    continue
-                
-                api_path = os.path.join(repo_path, api_name)
-                if not os.path.isdir(api_path):
-                    continue
-                
-                versions = [
-                    f.replace("v", "").replace(".md", "")
-                    for f in os.listdir(api_path)
-                    if f.startswith("v") and f.endswith(".md")
-                ]
-                
-                if not versions:
-                    continue
-                
-                latest_version = max([int(v) for v in versions], default=0)
-                available_apis.append({
-                    "repo": repo,
-                    "api": api_name,
-                    "title": titles.get(api_name, api_name),
-                    "version": latest_version
-                })
-    
     if not available_apis:
         return []
     
@@ -325,7 +281,7 @@ Instructions:
         return []
 
 
-def answer_question_based_on_docs(query: str, matched_apis: List[Dict], base_path: str = DOCS_DIR) -> Dict:
+def answer_question_based_on_docs(query: str, matched_apis: List[Dict]) -> Dict:
     """
     Answer user questions based on actual API documentation.
     Acts as a KT provider/assistant using only available documentation.
@@ -333,7 +289,6 @@ def answer_question_based_on_docs(query: str, matched_apis: List[Dict], base_pat
     Args:
         query: User's natural language question
         matched_apis: List of matched APIs with repo, api, version info
-        base_path: Base directory containing API documentation
         
     Returns:
         Dictionary with:
@@ -360,23 +315,15 @@ def answer_question_based_on_docs(query: str, matched_apis: List[Dict], base_pat
         api_name = api.get("api")
         version = api.get("version")
         
-        doc_path = os.path.join(base_path, repo, api_name, f"v{version}.md")
-        
-        try:
-            if os.path.exists(doc_path):
-                with open(doc_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    if content.strip():
-                        docs_content.append({
-                            "repo": repo,
-                            "api": api_name,
-                            "version": version,
-                            "content": content[:2000]  # Limit to 2000 chars per doc
-                        })
-        except Exception as e:
-            print(f"⚠️ Error reading {doc_path}: {e}")
-            continue
-    
+        content = docs_store.read_version(repo, api_name, version)
+        if content and content.strip():
+            docs_content.append({
+                "repo": repo,
+                "api": api_name,
+                "version": version,
+                "content": content[:2000]  # Limit to 2000 chars per doc
+            })
+
     if not docs_content:
         return {
             "success": False,

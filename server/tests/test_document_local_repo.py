@@ -21,21 +21,24 @@ def test_documents_a_local_folder_without_git(tmp_path):
     assert result.returncode == 0, result.stderr
 
     assert "Documented   : 4 new version(s), 0 unchanged" in result.stdout
-    docs = tmp_path / "docs" / "shop"
-    assert sorted(p.name for p in docs.iterdir() if p.is_dir()) == [
+
+    from app import db
+    from app.services import docs_store
+    from app.services.architecture_store import load_architecture
+    db.use(f"sqlite:///{tmp_path / 'mergeclear.db'}")
+
+    assert docs_store.list_apis("shop") == [
         "OrderController.cancel", "OrderController.create", "OrderController.get", "OrderController.list",
     ]
-    doc = (docs / "OrderController.create" / "v1.md").read_text()
+    doc = docs_store.read_version("shop", "OrderController.create", 1)
     assert "## Dependencies & Integrations" in doc
     assert "Places a new order." in doc   # Javadoc used as overview without an LLM
     assert doc.startswith("# Places a new order\n")   # display title from the Javadoc
     assert "- **API id:** `OrderController.create`" in doc
-    titles = json.loads((docs / ".titles.json").read_text())
-    assert titles["OrderController.create"] == {"title": "Places a new order", "source": "fallback"}
-    assert titles["OrderController.list"]["title"] == "List (Order)"
+    assert docs_store.title_entry("shop", "OrderController.create") == {"title": "Places a new order", "source": "fallback"}
+    assert docs_store.get_title("shop", "OrderController.list") == "List (Order)"
 
-    stored = json.loads((tmp_path / "database" / "architecture" / "shop" / "latest.json").read_text())
-    assert stored["commit"].startswith("local-")
+    assert load_architecture("shop")["commit"].startswith("local-")
     assert json.loads((tmp_path / "scan.json").read_text())["routes"]
 
     # same code again: nothing new to document

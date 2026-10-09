@@ -3,27 +3,21 @@ Read-only view models for the UI: API lists with method/path, repository
 summaries and recent changes. Everything comes from the docs folder, the
 version files and the stored architecture model.
 """
-import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from app.services import docs_store
 from app.services.architecture_store import has_architecture, load_architecture
-from app.services import doc_service
 from mergeclear import contracts
 
 
-def _versions(repo, api):
-    # the instance that writes versions, so reads always see the same storage
-    return doc_service.version_service.get_versions(repo, api)
-
-
-def _mtime(repo: str, api: str, version: int) -> Optional[float]:
-    path = os.path.join(docs_store.DOCS_DIR, repo, api, f"v{version}.md")
-    try:
-        return os.path.getmtime(path)
-    except OSError:
+def _timestamp(value) -> Optional[float]:
+    """Epoch seconds of a stored timestamp (SQLite returns them without a timezone: they are UTC)."""
+    if value is None:
         return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.timestamp()
 
 
 def relative_time(timestamp: Optional[float]) -> str:
@@ -58,14 +52,10 @@ def api_items(repo: str) -> List[dict]:
     titles = docs_store.get_titles(repo)
     items = []
 
-    for api in docs_store.list_apis(repo):
-        versions = docs_store.list_versions(repo, api)
-        latest = versions[-1]
-        entries = _versions(repo, api)
-        entry = next((e for e in reversed(entries) if e.get("version") == latest), entries[-1] if entries else {})
+    for entry in docs_store.latest_versions(repo):
+        api = entry["api"]
         route = entry.get("route") or {}
-        updated = _mtime(repo, api, latest)
-
+        updated = _timestamp(entry.get("created_at"))
         items.append({
             "name": api,
             "title": titles.get(api, api),
@@ -75,8 +65,8 @@ def api_items(repo: str) -> List[dict]:
             "handler": route.get("handler"),
             "module": route.get("module"),
             "group": _group_of(route, api),
-            "latest_version": latest,
-            "versions": len(versions),
+            "latest_version": entry["version"],
+            "versions": entry["versions"],
             "commit": entry.get("commit_hash"),
             "updated": updated,
             "updated_label": relative_time(updated),
@@ -90,32 +80,27 @@ def current_route(repo: str, api: str, version: Optional[int] = None) -> dict:
     versions = docs_store.list_versions(repo, api)
     if not versions:
         return {}
-    wanted = version or versions[-1]
-    entries = _versions(repo, api)
-    entry = next((e for e in entries if e.get("version") == wanted), None)
-    return (entry or {}).get("route") or {}
+    return docs_store.get_route(repo, api, version or versions[-1]) or {}
 
 
 def version_rows(repo: str, api: str) -> List[dict]:
     """Versions newest first with commit, title and time."""
-    entries = {e.get("version"): e for e in _versions(repo, api)}
+    entries = docs_store.version_entries(repo, api)
     rows = []
-    versions = docs_store.list_versions(repo, api)
 
-    for i, v in enumerate(versions):
-        entry = entries.get(v, {})
-        updated = _mtime(repo, api, v)
+    for i, entry in enumerate(entries):
+        updated = _timestamp(entry.get("created_at"))
         route = entry.get("route") or {}
         rows.append({
-            "version": v,
-            "previous": versions[i - 1] if i > 0 else None,
+            "version": entry["version"],
+            "previous": entries[i - 1]["version"] if i > 0 else None,
             "commit": entry.get("commit_hash"),
             "title": entry.get("title"),
             "change_reasons": route.get("change_reasons") or [],
             "breaking_changes": route.get("breaking_changes") or [],
             "updated_label": relative_time(updated),
             "updated_title": absolute_time(updated),
-            "is_latest": i == len(versions) - 1,
+            "is_latest": i == len(entries) - 1,
         })
 
     return list(reversed(rows))
@@ -267,3 +252,42 @@ def impact_view(impact: dict) -> dict:
         "dependencies": dependencies,
         "dependency_count": sum(len([i for i in d["entries"] if i["status"] != "removed"]) for d in dependencies),
     }
+
+
+# ---------- background jobs ----------
+
+def _job_view(job: dict) -> dict:
+    from datetime import datetime as _dt
+
+    def ts(value):
+        return _dt.fromisoformat(value).timestamp() if value else None
+
+    total, done = job.get("progress_total") or 0, job.get("progress_done") or 0
+    if job["status"] == "running":
+        label = "Documenting"
+    elif job["status"] == "queued":
+        label = "Retrying soon" if job.get("attempts") else "Queued"
+    elif job["status"] == "failed":
+        label = "Failed"
+    else:
+        label = "Done"
+    error = (job.get("error") or "").strip().splitlines()
+    return {
+        **job,
+        "label": label,
+        "commit_short": (job.get("commit") or "")[:12],
+        "percent": int(done * 100 / total) if total else 0,
+        "error_line": error[0] if error else "",
+        "when": relative_time(ts(job.get("finished_at") or job.get("started_at") or job.get("created_at"))),
+    }
+
+
+def jobs_panel(repo: Optional[str] = None) -> dict:
+    """Queued/running jobs and failures of the last day, for the dashboard."""
+    from app import jobs
+
+    active = [_job_view(j) for j in reversed(jobs.list_jobs(repo=repo, active=True, limit=20))]
+    day_ago = datetime.now(timezone.utc).timestamp() - 86400
+    failed = [_job_view(j) for j in jobs.list_jobs(repo=repo, status="failed", limit=5)
+              if j.get("finished_at") and datetime.fromisoformat(j["finished_at"]).timestamp() > day_ago]
+    return {"active": active, "failed": failed, "repo": repo}

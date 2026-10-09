@@ -4,24 +4,23 @@ import hmac
 import re
 from datetime import datetime
 from typing import List
-from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi import APIRouter, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from app.config import INGEST_TOKEN, LLM_ENABLED, TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
+from app import jobs
 from app.services import docs_store, ui_data
 from app.services.html_safety import clean_html
 from app.services.architecture_view import layered_component_view, layered_system_view
-from app.services.architecture_store import has_architecture, load_architecture, save_architecture
+from app.services.architecture_store import has_architecture, load_architecture
 from app.services.qa_plan_service import QAPlanService
-from app.services.doc_service import process_routes
 from app.services.llm_service import summarize_changes, search_apis_rag, answer_question_based_on_docs
 from app.services.qa_plan_generator import generate_full_qa_plan
 from app.services.dependency_analyzer import (
     analyze_endpoint_impact, build_architecture_graph, build_dependency_graph, get_impact_analysis
 )
-from app.services.version_service import VersionService
 from app.services.test_templates import (
     get_predefined_templates, list_templates, create_template,
     get_template_recommendations
@@ -32,7 +31,6 @@ from bs4 import BeautifulSoup
 
 router = APIRouter()
 qa_plan_service = QAPlanService()
-version_service = VersionService()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 
@@ -86,8 +84,8 @@ def _impact(repo, api, v1, v2, v1_content, v2_content):
     """Scanner-based impact analysis when structured data exists, docs-based otherwise."""
     impact = analyze_endpoint_impact(
         repo, api, v1, v2,
-        version_service.get_route(repo, api, v1) if v1 else None,
-        version_service.get_route(repo, api, v2),
+        docs_store.get_route(repo, api, v1) if v1 else None,
+        docs_store.get_route(repo, api, v2),
         load_architecture(repo),
     )
     if impact is None:
@@ -115,33 +113,39 @@ def _authorized(http_request: Request) -> bool:
     return scheme.lower() == "bearer" and hmac.compare_digest(token.strip(), INGEST_TOKEN)
 
 
-@router.post("/analyze")
-async def analyze(request: AnalyzeRequest, background_tasks: BackgroundTasks, http_request: Request):
-    """Receive a scan report from `mergeclear scan --push` / `mergeclear push`."""
+@router.post("/analyze", status_code=202)
+async def analyze(request: AnalyzeRequest, http_request: Request):
+    """
+    Receive a scan report from `mergeclear scan --push` / `mergeclear push` and
+    queue it for documentation. Answers at once with the job to follow.
+    """
     if not _authorized(http_request):
         return JSONResponse({"error": "missing or invalid token"}, status_code=401,
                             headers={"WWW-Authenticate": "Bearer"})
     if not docs_store.is_safe_name(request.repository):
         return JSONResponse({"error": f"invalid repository name {request.repository!r} (use --name)"}, status_code=400)
 
-    if request.architecture:
-        background_tasks.add_task(
-            save_architecture,
-            request.repository,
-            request.commit,
-            request.architecture
-        )
+    job, created = await run_in_threadpool(
+        jobs.enqueue, "analyze", request.model_dump(mode="json"), request.repository, request.commit)
+    return JSONResponse({
+        "status": "queued" if created else "already_queued",
+        "job_id": job["id"],
+        "job_url": f"/api/jobs/{job['id']}",
+    }, status_code=202)
 
-    background_tasks.add_task(
-        process_routes,
-        request.routes,
-        request.commit,
-        request.repository
-    )
 
-    return {
-        "status": "processing_started"
-    }
+@router.get("/api/jobs")
+def list_jobs(repo: str = None, active: bool = None, status: str = None, limit: int = 20):
+    """Recent background jobs, newest first (active=true: queued and running only)."""
+    return {"jobs": jobs.list_jobs(repo=repo, active=active, status=status, limit=limit)}
+
+
+@router.get("/api/jobs/{job_id}")
+def get_job(job_id: int):
+    job = jobs.get(job_id)
+    if job is None:
+        return JSONResponse({"error": f"no job {job_id}"}, status_code=404)
+    return job
 
 
 @router.get("/api/architecture")
@@ -192,6 +196,7 @@ def ui_home(request: Request):
                 "architectures": sum(1 for s in summaries if s["has_architecture"]),
             },
             "recent": ui_data.recent_changes([s["name"] for s in summaries], 8, items),
+            "jobs": ui_data.jobs_panel(),
         }
     )
 
@@ -462,7 +467,7 @@ def view_doc(request: Request, repo: str, api: str, version: str):
 @router.get("/ui/{repo}/{api}", response_class=HTMLResponse)
 def view_latest(request: Request, repo: str, api: str):
 
-    if not docs_store.api_path(repo, api):
+    if not docs_store.api_exists(repo, api):
         return _not_found(request, f"There is no API '{api}' in '{repo}'.", f"/ui/{repo}" if docs_store.is_safe_name(repo) else "/")
 
     versions = docs_store.list_versions(repo, api)
@@ -479,7 +484,7 @@ def view_latest(request: Request, repo: str, api: str):
 @router.get("/ui/{repo}/{api}/history", response_class=HTMLResponse)
 def api_versions(request: Request, repo: str, api: str):
 
-    if not docs_store.api_path(repo, api):
+    if not docs_store.api_exists(repo, api):
         return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
     versions = ui_data.version_rows(repo, api)
@@ -505,13 +510,15 @@ def ui_search(request: Request):
 @router.get("/ui/{repo}", response_class=HTMLResponse)
 def repo_home(request: Request, repo: str):
 
-    if not docs_store.is_safe_name(repo) or repo not in docs_store.list_repos():
+    if not docs_store.is_safe_name(repo):
         return _not_found(request, f"There is no repository '{repo}'.")
 
     items = ui_data.api_items(repo)
+    panel = ui_data.jobs_panel(repo)
 
-    if not items:
-        return _not_found(request, f"No APIs are documented in '{repo}' yet.")
+    # a first upload that is still being documented shows its progress instead of a 404
+    if not items and not panel["active"] and not panel["failed"]:
+        return _not_found(request, f"There is no repository '{repo}'.")
 
     groups = {}
     for item in items:
@@ -527,6 +534,7 @@ def repo_home(request: Request, repo: str):
             "groups": groups,
             "items": items,
             "recent": ui_data.recent_changes([repo], 6, {repo: items}),
+            "jobs": panel,
         }
     )
 
@@ -605,7 +613,7 @@ def qa_plan_view(request: Request, repo: str, api: str, v1: int = None, v2: int 
     Args:
         force: If True, bypass cache and regenerate QA plan
     """
-    if not docs_store.api_path(repo, api):
+    if not docs_store.api_exists(repo, api):
         return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
     versions = docs_store.list_versions(repo, api)
@@ -678,7 +686,7 @@ def generate_qa_plan_api(repo: str, api: str, v1: int = None, v2: int = None, fo
     Args:
         force: If True, bypass cache and regenerate QA plan
     """
-    if not docs_store.api_path(repo, api):
+    if not docs_store.api_exists(repo, api):
         return JSONResponse(
             {"error": f"API '{api}' not found in repository '{repo}'"},
             status_code=404
@@ -762,7 +770,7 @@ def get_impact_analysis_api(repo: str, api: str, v1: int, v2: int):
         v1: Version 1
         v2: Version 2
     """
-    if not docs_store.api_path(repo, api):
+    if not docs_store.api_exists(repo, api):
         return JSONResponse({"error": f"API '{api}' not found in repository '{repo}'"}, status_code=404)
 
     versions = docs_store.list_versions(repo, api)
@@ -835,7 +843,7 @@ def dependencies_view(request: Request, repo: str, api: str, v1: int = None, v2:
     """
     Display dependency analysis and impact graph for API changes.
     """
-    if not docs_store.api_path(repo, api):
+    if not docs_store.api_exists(repo, api):
         return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
     versions = docs_store.list_versions(repo, api)
@@ -875,7 +883,7 @@ def templates_view(request: Request, repo: str, api: str):
     """
     Display and manage test templates for an API.
     """
-    if not docs_store.api_path(repo, api):
+    if not docs_store.api_exists(repo, api):
         return _not_found(request, f"There is no API '{api}' in '{repo}'.")
 
     return templates.TemplateResponse(

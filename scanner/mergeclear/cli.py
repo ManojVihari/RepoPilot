@@ -129,6 +129,48 @@ def push_report(report: dict, server: str, token: str = None) -> dict:
     return response.json() if response.content else {}
 
 
+def wait_for_job(server: str, answer: dict, token: str = None, timeout: float = 600, poll: float = 2.0,
+                 sleep=None) -> dict:
+    """Poll the server until the queued upload is documented. Raises CliError when it fails or times out."""
+    import time
+
+    import requests
+
+    sleep = sleep or time.sleep
+    job_url = answer.get("job_url")
+    if not job_url:
+        raise CliError("the server did not return a job to wait for (older server?)")
+    url = server.rstrip("/") + job_url
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    deadline = time.monotonic() + timeout
+    last = None
+    while True:
+        try:
+            job = requests.get(url, headers=headers, timeout=30).json()
+        except (requests.RequestException, ValueError) as e:
+            raise CliError(f"could not read {url}: {e}")
+        state = (job.get("status"), job.get("progress_done"), job.get("progress_total"))
+        if state != last:
+            last = state
+            if job.get("progress_total"):
+                logger.info("job %s: %s, %s of %s endpoints", job.get("id"), job.get("status"),
+                            job.get("progress_done"), job.get("progress_total"))
+            else:
+                logger.info("job %s: %s", job.get("id"), job.get("status"))
+        if job.get("status") == "done":
+            return job
+        if job.get("status") == "failed":
+            raise CliError(f"the server could not document the upload: {(job.get('error') or '').splitlines()[0] if job.get('error') else 'unknown error'}")
+        if time.monotonic() > deadline:
+            raise CliError(f"gave up waiting after {int(timeout)}s; the job continues on the server: {url}")
+        sleep(poll)
+
+
+def _report_done(job: dict):
+    result = job.get("result") or {}
+    logger.info("documented: %s new version(s), %s unchanged", result.get("created", 0), result.get("unchanged", 0))
+
+
 # ---------------------------------------------------------------- formatting
 
 ICONS = {CLEAR: "✅", REVIEW: "🟡", HOLD: "🔴"}
@@ -274,8 +316,13 @@ def cmd_scan(args) -> int:
         write_json(report, args.out)
     if args.push is not None:
         server = setting(args.push, "MERGECLEAR_SERVER", config, "server")
-        push_report(report, server, setting(None, "MERGECLEAR_TOKEN", {}, ""))
-        logger.info("sent to %s", server)
+        token = setting(None, "MERGECLEAR_TOKEN", {}, "")
+        answer = push_report(report, server, token)
+        logger.info("sent to %s (%s)", server, answer.get("job_url") or answer.get("status", "ok"))
+        if args.wait:
+            _report_done(wait_for_job(server, answer, token, timeout=args.wait))
+    elif args.wait:
+        raise CliError("--wait needs --push")
     return EXIT_OK
 
 
@@ -283,8 +330,12 @@ def cmd_push(args) -> int:
     report = read_report(args.report)
     config = load_config(os.getcwd())
     server = setting(args.server, "MERGECLEAR_SERVER", config, "server")
-    answer = push_report(report, server, setting(None, "MERGECLEAR_TOKEN", {}, ""))
-    logger.info("sent %s @ %s to %s (%s)", report.get("repository"), _short(report.get("commit")), server, answer.get("status", "ok"))
+    token = setting(None, "MERGECLEAR_TOKEN", {}, "")
+    answer = push_report(report, server, token)
+    logger.info("sent %s @ %s to %s (%s)", report.get("repository"), _short(report.get("commit")), server,
+                answer.get("job_url") or answer.get("status", "ok"))
+    if args.wait:
+        _report_done(wait_for_job(server, answer, token, timeout=args.wait))
     return EXIT_OK
 
 
@@ -337,11 +388,13 @@ def build_parser() -> argparse.ArgumentParser:
                       help="send the report to a Mergeclear server (URL, or MERGECLEAR_SERVER / mergeclear.yml)")
     scan.add_argument("--name", help="repository name (default: git remote or folder name)")
     scan.add_argument("--branch", help="branch name, for detached CI checkouts")
+    scan.add_argument("--wait", nargs="?", const=600, type=float, metavar="SECONDS", help="after pushing, wait until the server has documented the upload (default limit 600 s)")
     scan.set_defaults(run=cmd_scan)
 
     push = sub.add_parser("push", help="send a report to a Mergeclear server")
     push.add_argument("report", help="report file written by `mergeclear scan --out`")
     push.add_argument("--server", help="server URL (default: MERGECLEAR_SERVER or mergeclear.yml)")
+    push.add_argument("--wait", nargs="?", const=600, type=float, metavar="SECONDS", help="after pushing, wait until the server has documented the upload (default limit 600 s)")
     push.set_defaults(run=cmd_push)
 
     for name, helptext in (("diff", "compare two reports"), ("check", "compare two reports and fail on breaking changes")):

@@ -1,13 +1,30 @@
-# Self-hosted Mergeclear.
+# Self-hosted Mergeclear: server + Postgres (+ optional Ollama, extra workers).
 #
-#   cp .env.example .env               # set MERGECLEAR_TOKEN
-#   docker compose up -d               # server only: docs from scanned facts
-#   docker compose --profile llm up -d # + Ollama (set MERGECLEAR_LLM=on in .env)
+#   cp .env.example .env                            # set MERGECLEAR_TOKEN and MERGECLEAR_DB_PASSWORD
+#   docker compose up -d                            # server + Postgres
+#   docker compose --profile llm up -d              # + Ollama (set MERGECLEAR_LLM=on in .env)
+#   docker compose --profile workers up -d --scale worker=3   # + dedicated job workers
 #
 # Then send scans:  MERGECLEAR_TOKEN=... mergeclear scan --push http://<host>:8000
 name: mergeclear
 
 services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    environment:
+      POSTGRES_USER: mergeclear
+      POSTGRES_DB: mergeclear
+      POSTGRES_PASSWORD: ${MERGECLEAR_DB_PASSWORD:?set MERGECLEAR_DB_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mergeclear -d mergeclear"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    # not published on the host: only the server talks to it
+
   server:
     build:
       context: .
@@ -15,13 +32,29 @@ services:
     image: mergeclear/server:${MERGECLEAR_VERSION:-latest}
     ports:
       - "${MERGECLEAR_PORT:-8000}:8000"
-    environment:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &server-env
+      MERGECLEAR_DATABASE_URL: postgresql+psycopg://mergeclear:${MERGECLEAR_DB_PASSWORD}@postgres:5432/mergeclear
       MERGECLEAR_TOKEN: ${MERGECLEAR_TOKEN:?set MERGECLEAR_TOKEN in .env - scanners send it when uploading}
+      MERGECLEAR_WORKERS: ${MERGECLEAR_WORKERS:-2}
       MERGECLEAR_LLM: ${MERGECLEAR_LLM:-off}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434/api/generate}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-mistral}
-    volumes:
-      - mergeclear-data:/data
+    restart: unless-stopped
+
+  # extra background workers (documenting uploads is the slow part with an LLM)
+  worker:
+    image: mergeclear/server:${MERGECLEAR_VERSION:-latest}
+    profiles: [workers]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *server-env
+    command: ["python", "-m", "app.manage", "worker", "--count", "2"]
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
   ollama:
@@ -49,5 +82,5 @@ services:
     restart: "no"
 
 volumes:
-  mergeclear-data:
+  postgres-data:
   ollama-models:

@@ -1,58 +1,36 @@
 """
-Application models sent by the scanner, stored per repository:
-DATABASE_DIR/architecture/<repo>/latest.json and <commit>.json
+Application models sent by the scanner, one row per upload; the newest row of
+a repository is its current architecture.
 """
-import json
-import os
-import re
 from typing import Optional
 
-from app.config import DATABASE_DIR
+from sqlalchemy import insert, select
+
+from app import db
+from app.db import architectures
 from app.services.docs_store import is_safe_name
-
-ARCHITECTURE_DIR = os.path.join(DATABASE_DIR, "architecture")
-
-
-def _commit_name(commit: str) -> Optional[str]:
-    name = re.sub(r"[^\w.-]", "_", commit or "")
-    return name if is_safe_name(name) else None
 
 
 def save_architecture(repository: str, commit: str, architecture: dict) -> bool:
     if not architecture or not is_safe_name(repository):
         return False
-
-    repo_dir = os.path.join(ARCHITECTURE_DIR, repository)
-    os.makedirs(repo_dir, exist_ok=True)
-
     document = {"repository": repository, "commit": commit, "architecture": architecture}
-    names = ["latest.json"]
-    commit_name = _commit_name(commit)
-    if commit_name:
-        names.append(f"{commit_name}.json")
-
-    for name in names:
-        with open(os.path.join(repo_dir, name), "w", encoding="utf-8") as f:
-            json.dump(document, f)
-
+    with db.engine().begin() as conn:
+        conn.execute(insert(architectures).values(repo=repository, commit=commit, document=document, created_at=db.utcnow()))
     return True
 
 
 def has_architecture(repository: str) -> bool:
-    return is_safe_name(repository) and os.path.isfile(os.path.join(ARCHITECTURE_DIR, repository, "latest.json"))
+    with db.engine().connect() as conn:
+        return conn.execute(select(architectures.c.id).where(architectures.c.repo == repository).limit(1)).first() is not None
 
 
 def load_architecture(repository: str, commit: Optional[str] = None) -> Optional[dict]:
+    """Latest application model of a repository, or the one uploaded for `commit`."""
     if not is_safe_name(repository):
         return None
-
-    name = f"{_commit_name(commit)}.json" if commit else "latest.json"
-    if commit and not _commit_name(commit):
-        return None
-
-    path = os.path.join(ARCHITECTURE_DIR, repository, name)
-    if not os.path.isfile(path):
-        return None
-
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    query = select(architectures.c.document).where(architectures.c.repo == repository)
+    if commit:
+        query = query.where(architectures.c.commit == commit)
+    with db.engine().connect() as conn:
+        return conn.execute(query.order_by(architectures.c.id.desc()).limit(1)).scalar()

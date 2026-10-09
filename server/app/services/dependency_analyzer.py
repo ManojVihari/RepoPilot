@@ -2,11 +2,9 @@
 Dependency Analyzer Service
 Analyzes API dependencies, breaking changes impact, and creates dependency graphs
 """
-import os
 import re
 from typing import Dict, List, Optional, Set
-from app.config import DOCS_DIR
-from app.services import architecture_view
+from app.services import architecture_view, docs_store
 from mergeclear.contracts import change, contract_changes, dependency_items, downstream, downstream_changes  # noqa: F401 (re-exported)
 
 
@@ -105,64 +103,21 @@ def _calculate_impact_level(removed: Set[str], total: Set[str]) -> str:
         return "high"
 
 
-def build_dependency_graph(repo: str, base_path: str = DOCS_DIR) -> Dict:
-    """
-    Build a dependency graph of all APIs in a repository.
-    
-    Args:
-        repo: Repository name
-        base_path: Base path to docs
-        
-    Returns:
-        Graph structure for visualization
-    """
-    repo_path = os.path.join(base_path, repo)
+def build_dependency_graph(repo: str) -> Dict:
+    """Relationships between the APIs of a repository guessed from their latest docs (no scanner data)."""
     nodes = []
     links = []
-    
-    if not os.path.exists(repo_path):
-        return {"nodes": [], "links": []}
-    
-    # Collect all APIs
     api_docs = {}
-    for api_name in os.listdir(repo_path):
-        if api_name.startswith("."):
-            continue
-        
-        api_path = os.path.join(repo_path, api_name)
-        if not os.path.isdir(api_path):
-            continue
-        
-        # Get latest version
-        versions = [
-            f for f in os.listdir(api_path)
-            if f.startswith("v") and f.endswith(".md")
-        ]
-        
-        if versions:
-            latest = max(versions, key=lambda x: int(x.replace("v", "").replace(".md", "")))
-            doc_path = os.path.join(api_path, latest)
-            
-            try:
-                with open(doc_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    api_docs[api_name] = {
-                        "content": content[:1000],  # Preview
-                        "endpoints": extract_endpoints_from_doc(content),
-                        "version": latest.replace("v", "").replace(".md", "")
-                    }
-                    
-                    # Add node
-                    nodes.append({
-                        "id": api_name,
-                        "label": api_name,
-                        "version": api_docs[api_name]["version"],
-                        "type": "api"
-                    })
-            except Exception as e:
-                print(f"⚠️  Error reading {api_name}: {e}")
-                continue
-    
+
+    for doc in docs_store.latest_docs(repo):
+        api_name = doc["api"]
+        api_docs[api_name] = {
+            "content": doc["content"][:1000],
+            "endpoints": extract_endpoints_from_doc(doc["content"]),
+            "version": str(doc["version"]),
+        }
+        nodes.append({"id": api_name, "label": doc["title"], "version": str(doc["version"]), "type": "api"})
+
     # Find connections based on shared endpoints
     api_names = list(api_docs.keys())
     for i, api1 in enumerate(api_names):
@@ -215,7 +170,7 @@ def _has_semantic_relationship(api1: str, api2: str) -> bool:
     return False
 
 
-def get_impact_analysis(repo: str, api: str, v1_doc: str, v2_doc: str, base_path: str = DOCS_DIR) -> Dict:
+def get_impact_analysis(repo: str, api: str, v1_doc: str, v2_doc: str) -> Dict:
     """
     Complete impact analysis including related APIs and breaking changes.
     
@@ -224,7 +179,6 @@ def get_impact_analysis(repo: str, api: str, v1_doc: str, v2_doc: str, base_path
         api: API name
         v1_doc: Version 1 documentation
         v2_doc: Version 2 documentation
-        base_path: Base path to docs
         
     Returns:
         Complete impact analysis
@@ -233,7 +187,7 @@ def get_impact_analysis(repo: str, api: str, v1_doc: str, v2_doc: str, base_path
     breaking_changes = extract_dependencies(v1_doc, v2_doc)
     
     # Build dependency graph
-    dependency_graph = build_dependency_graph(repo, base_path)
+    dependency_graph = build_dependency_graph(repo)
     
     # Find APIs that might be affected
     affected_apis = []

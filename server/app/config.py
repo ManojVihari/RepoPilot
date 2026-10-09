@@ -9,9 +9,15 @@ def env(name, default=None):
     return os.environ.get(f"MERGECLEAR_{name}") or os.environ.get(f"DOCAI_{name}") or default
 
 
-# where generated docs and version metadata live
-DOCS_DIR = env("DOCS_DIR") or os.path.join(SERVER_DIR, "docs")
+# Postgres in production, e.g. postgresql+psycopg://mergeclear:secret@postgres:5432/mergeclear.
+# Unset: a SQLite file in DATABASE_DIR (local runs and tests).
+DATABASE_URL = env("DATABASE_URL")
 DATABASE_DIR = env("DATABASE_DIR") or os.path.join(SERVER_DIR, "database")
+# only read by `python -m app.manage import-files` (data of versions before the database)
+DOCS_DIR = env("DOCS_DIR") or os.path.join(SERVER_DIR, "docs")
+
+# background workers in the server process (0: run `python -m app.manage worker` separately)
+WORKERS = int(env("WORKERS", "1"))
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral")

@@ -16,7 +16,7 @@ writes the docs, versions and architecture model exactly like the server's
     python scripts/document_local_repo.py ~/code/my-service --server http://localhost:8000
 
 Then view it with:  cd server && python run.py   ->  http://localhost:8000/ui
-(with --data-dir, start the server with the same MERGECLEAR_DOCS_DIR / MERGECLEAR_DATABASE_DIR)
+(with --data-dir, start the server with the MERGECLEAR_DATABASE_URL it prints)
 
 In CI or against a running server, prefer the CLI:  mergeclear scan --push URL
 """
@@ -24,7 +24,6 @@ import argparse
 import json
 import logging
 import os
-import shutil
 import sys
 import time
 from collections import Counter
@@ -38,7 +37,7 @@ def parse_args():
     parser.add_argument("--name", help="Repository name in Mergeclear (default: folder name)")
     parser.add_argument("--label", help="Version label recorded as the commit (default: local-<timestamp>)")
     parser.add_argument("--no-llm", action="store_true", help="Do not call Ollama; build docs from scanner data only")
-    parser.add_argument("--data-dir", help="Write docs/ and database/ under this folder instead of server/")
+    parser.add_argument("--data-dir", help="Use a SQLite database in this folder (default: MERGECLEAR_DATABASE_URL or server/database)")
     parser.add_argument("--fresh", action="store_true", help="Delete existing docs/versions/architecture of this repo first")
     parser.add_argument("--server", help="send the scan to a running Mergeclear server instead (uses MERGECLEAR_TOKEN)")
     parser.add_argument("--save-json", help="Also write the raw scanner output to this file")
@@ -94,9 +93,11 @@ def main():
 
     # Environment must be set before the server modules are imported
     if args.data_dir:
+        # a SQLite database in that folder (otherwise MERGECLEAR_DATABASE_URL or server/database)
         data_dir = os.path.abspath(args.data_dir)
-        os.environ["MERGECLEAR_DOCS_DIR"] = os.path.join(data_dir, "docs")
-        os.environ["MERGECLEAR_DATABASE_DIR"] = os.path.join(data_dir, "database")
+        os.makedirs(data_dir, exist_ok=True)
+        os.environ["MERGECLEAR_DATABASE_DIR"] = data_dir
+        os.environ["MERGECLEAR_DATABASE_URL"] = "sqlite:///" + os.path.join(data_dir, "mergeclear.db")
     if args.no_llm:
         os.environ["MERGECLEAR_LLM"] = "off"
 
@@ -142,31 +143,24 @@ def main():
         return 0
 
     # ---------- generate in-process ----------
-    from app.config import DATABASE_DIR, DOCS_DIR, LLM_ENABLED
+    from app import db
+    from app.config import LLM_ENABLED
     from app.models.schema import AnalyzeRequest
     from app.services import docs_store
-    from app.services.architecture_store import ARCHITECTURE_DIR, save_architecture
+    from app.services.architecture_store import save_architecture
     from app.services.doc_service import doc_name, process_routes
 
     if not docs_store.is_safe_name(name):
         sys.exit(f"Invalid repository name: {name!r} (use --name)")
 
     if args.fresh:
-        for path in (
-            os.path.join(DOCS_DIR, name),
-            os.path.join(DATABASE_DIR, name),
-            os.path.join(DATABASE_DIR, "qa_plans", name),
-            os.path.join(ARCHITECTURE_DIR, name),
-        ):
-            if os.path.isdir(path):
-                shutil.rmtree(path)
+        docs_store.delete_repo(name)
         print(f"Removed previous data of '{name}'")
 
     request = AnalyzeRequest(**result)
 
     names = [doc_name(r) for r in request.routes]
     duplicates = sorted(n for n, count in Counter(names).items() if count > 1)
-    before = {n: docs_store.list_versions(name, n) for n in set(names)}
 
     if not LLM_ENABLED:
         print("LLM disabled: docs are built from scanner data only")
@@ -174,12 +168,10 @@ def main():
         print("Generating docs with Ollama (use --no-llm to skip)...")
 
     started = time.time()
-    process_routes(request.routes, request.commit, name)
     if request.architecture:
         save_architecture(name, request.commit, request.architecture)
-
-    created = sum(1 for n in set(names) if docs_store.list_versions(name, n) != before[n])
-    unchanged = len(set(names)) - created
+    counts = process_routes(request.routes, request.commit, name)
+    created, unchanged = counts["created"], counts["unchanged"]
 
     print("\n" + "=" * 60)
     print(f"Repository   : {name}")
@@ -188,15 +180,13 @@ def main():
     if duplicates:
         print(f"Note         : {len(duplicates)} name(s) shared by several endpoints (overloads), last one wins: "
               + ", ".join(duplicates[:5]) + (" ..." if len(duplicates) > 5 else ""))
-    print(f"Docs folder  : {os.path.join(DOCS_DIR, name)}")
-    if request.architecture:
-        print(f"Architecture : {os.path.join(ARCHITECTURE_DIR, name, 'latest.json')}")
+    print(f"Database     : {db.describe()}")
     print(f"Took         : {time.time() - started:.1f}s")
     print("=" * 60)
 
     env = ""
     if args.data_dir:
-        env = f"MERGECLEAR_DOCS_DIR={DOCS_DIR} MERGECLEAR_DATABASE_DIR={DATABASE_DIR} "
+        env = f"MERGECLEAR_DATABASE_URL={os.environ['MERGECLEAR_DATABASE_URL']} "
     print("\nView it:")
     print(f"  cd {os.path.join(ROOT, 'server')} && {env}python run.py")
     print(f"  http://localhost:8000/ui/{name}")

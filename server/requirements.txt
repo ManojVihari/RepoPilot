@@ -7,3 +7,5 @@ requests>=2.31
 beautifulsoup4
 markdown>=3.4
 nh3>=0.2.14
+sqlalchemy>=2.0
+psycopg[binary]>=3.1

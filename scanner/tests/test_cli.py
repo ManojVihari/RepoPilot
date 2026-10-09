@@ -196,3 +196,38 @@ def test_check_against_a_git_ref_in_one_command(shop, capsys):
     worktrees = subprocess.run(["git", "worktree", "list"], cwd=shop, capture_output=True, text=True).stdout
     assert len(worktrees.strip().splitlines()) == 1                  # temporary worktree cleaned up
     assert run("check", shop, "--base", "nope") == cli.EXIT_ERROR
+
+
+def test_push_can_wait_until_the_server_documented_the_upload(shop, tmp_path, monkeypatch, capsys, caplog):
+    import logging
+    import time
+    import requests
+
+    states = []
+
+    class Response:
+        def __init__(self, data, status=202):
+            self.data, self.status_code, self.ok, self.content = data, status, True, b"x"
+
+        def json(self):
+            return self.data
+
+    monkeypatch.setattr(requests, "post", lambda url, json=None, headers=None, timeout=None:
+                        Response({"status": "queued", "job_id": 7, "job_url": "/api/jobs/7"}))
+    monkeypatch.setattr(requests, "get", lambda url, headers=None, timeout=None: Response(states.pop(0), 200))
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+
+    states[:] = [{"id": 7, "status": "queued"}, {"id": 7, "status": "running", "progress_done": 2, "progress_total": 4},
+                 {"id": 7, "status": "done", "result": {"created": 3, "unchanged": 1}}]
+    caplog.set_level(logging.INFO, logger="mergeclear.cli")
+    assert run("scan", shop, "--push", "http://mc", "--wait") == 0
+    assert "job 7: running, 2 of 4 endpoints" in caplog.text
+    assert "documented: 3 new version(s), 1 unchanged" in caplog.text
+
+    states[:] = [{"id": 7, "status": "failed", "error": "OperationalError: database is down\ntrace"}]
+    report = tmp_path / "r.json"
+    scan(shop, report)
+    assert run("push", report, "--server", "http://mc", "--wait") == cli.EXIT_ERROR
+    assert "could not document the upload: OperationalError: database is down" in capsys.readouterr().err
+
+    assert run("scan", shop, "--wait") == cli.EXIT_ERROR            # nothing to wait for without --push

@@ -7,7 +7,7 @@ from app.models.schema import Route
 from app.services import docs_store, test_templates
 from app.services.markdown_builder import MarkdownBuilder
 from app.services.signature_service import SignatureService
-import app.api.routes as routes
+from app import jobs
 
 
 FASTAPI_ROUTE = {
@@ -32,18 +32,10 @@ SPRING_ROUTE = {
 
 
 @pytest.fixture
-def docs_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(docs_store, "DOCS_DIR", str(tmp_path))
-
-    api = tmp_path / "shop" / "get_item"
-    api.mkdir(parents=True)
-    (api / "v1.md").write_text("# API: get_item\n\nfirst")
-    (api / "v2.md").write_text("# API: get_item\n\nsecond")
-    (api / "vdraft.md").write_text("ignored")
-    (tmp_path / "shop" / "empty_api").mkdir()
-    (tmp_path / ".hidden").mkdir()
-
-    return tmp_path
+def docs_dir():
+    """shop/get_item documented twice (the name is kept from the file-based layout)."""
+    docs_store.save_version_if_changed("shop", "get_item", "sig-1", "c1", "# API: get_item\n\nfirst")
+    docs_store.save_version_if_changed("shop", "get_item", "sig-2", "c2", "# API: get_item\n\nsecond")
 
 
 @pytest.fixture
@@ -51,9 +43,17 @@ def client():
     return TestClient(app)
 
 
+def analyze(client, payload, **kwargs):
+    """Upload a scan and run the job it queues, as a worker would."""
+    response = client.post("/analyze", json=payload, **kwargs)
+    assert response.status_code == 202, response.text
+    jobs.run_pending()
+    return response
+
+
 def test_analyze_accepts_scanner_error_formats(client, monkeypatch):
     received = []
-    monkeypatch.setattr(routes, "process_routes", lambda *args: received.append(args))
+    monkeypatch.setattr(doc_service, "process_routes", lambda *args, **kw: received.append(args) or {})
 
     payload = {
         "scanner_version": "1.1",
@@ -63,9 +63,9 @@ def test_analyze_accepts_scanner_error_formats(client, monkeypatch):
         "routes": [FASTAPI_ROUTE, SPRING_ROUTE],
     }
 
-    response = client.post("/analyze", json=payload)
+    response = analyze(client, payload)
 
-    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
     assert len(received) == 1
 
 
@@ -106,7 +106,7 @@ def test_docs_store_listing(docs_dir):
 
 @pytest.mark.parametrize("repo, api", [("..", "shop"), ("shop", ".."), ("", "x"), ("a/b", "c")])
 def test_docs_store_rejects_path_escape(docs_dir, repo, api):
-    assert docs_store.api_path(repo, api) is None
+    assert not docs_store.api_exists(repo, api)
     assert docs_store.read_version(repo, api, 1) is None
 
 
@@ -122,13 +122,16 @@ def test_ui_pages_render(docs_dir, client):
     assert client.get("/ui/shop/missing").status_code == 404
 
 
-def test_template_names_cannot_escape_templates_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr(test_templates, "TEMPLATES_DIR", str(tmp_path / "templates"))
-
+def test_template_names_are_validated_and_stored_per_repo():
     assert test_templates.create_template("shop", "../../evil", "x", "y", []) is False
     assert test_templates.create_template("..", "ok", "x", "y", []) is False
     assert test_templates.create_template("shop", "Happy Path", "x", "y", ["a"]) is True
     assert test_templates.get_template("shop", "Happy Path")["test_count"] == 1
+    assert test_templates.create_template("shop", "happy-path", "x", "y", ["a", "b"]) is True    # same key: replaced
+    assert [t["test_count"] for t in test_templates.list_templates("shop")] == [2]
+    assert test_templates.list_templates("other") == []
+    assert test_templates.delete_template("shop", "Happy Path") is True
+    assert test_templates.get_template("shop", "Happy Path") is None
 
 
 # ============================
@@ -138,17 +141,13 @@ def test_template_names_cannot_escape_templates_dir(tmp_path, monkeypatch):
 import json
 from pathlib import Path
 
-from app.services import architecture_store, doc_service
+from app.services import doc_service
 
 SPRING_SCAN = Path(__file__).parent / "fixtures" / "spring_shop_scan.json"
 
 
 @pytest.fixture
 def isolated_storage(tmp_path, monkeypatch):
-    monkeypatch.setattr(docs_store, "DOCS_DIR", str(tmp_path / "docs"))
-    monkeypatch.setattr(doc_service.markdown_writer, "base_path", str(tmp_path / "docs"))
-    monkeypatch.setattr(doc_service.version_service, "base_path", str(tmp_path / "database"))
-    monkeypatch.setattr(architecture_store, "ARCHITECTURE_DIR", str(tmp_path / "architecture"))
     # no LLM in tests: the generator falls back to its template output
     monkeypatch.setattr(doc_service.generator, "ollama_url", "http://127.0.0.1:9/unreachable")
     return tmp_path
@@ -157,7 +156,7 @@ def isolated_storage(tmp_path, monkeypatch):
 def test_spring_scan_is_documented_and_architecture_stored(client, isolated_storage):
     payload = json.loads(SPRING_SCAN.read_text())
 
-    assert client.post("/analyze", json=payload).status_code == 200
+    analyze(client, payload)
 
     doc = docs_store.read_version("spring-shop", "OrderController.create", 1)
     assert "| 402 | PAYMENT_REQUIRED | PaymentDeclinedException (ApiErrors.declined) |" in doc
@@ -199,9 +198,8 @@ SPRING_SCAN_V2 = Path(__file__).parent / "fixtures" / "spring_shop_scan_v2.json"
 @pytest.fixture
 def two_versions(client, isolated_storage, monkeypatch):
     """spring-shop scanned at two commits (DTO, response and payment URL changed)."""
-    monkeypatch.setattr(routes.version_service, "base_path", str(isolated_storage / "database"))
     for scan in (SPRING_SCAN, SPRING_SCAN_V2):
-        assert client.post("/analyze", json=json.loads(scan.read_text())).status_code == 200
+        analyze(client, json.loads(scan.read_text()))
     return client
 
 
@@ -211,7 +209,7 @@ def test_versions_store_structured_route_data(two_versions):
     assert docs_store.list_versions("spring-shop", "OrderController.get") == [1, 2]
     assert docs_store.list_versions("spring-shop", "OrderController.cancel") == [1]
 
-    route = routes.version_service.get_route("spring-shop", "OrderController.create", 2)
+    route = docs_store.get_route("spring-shop", "OrderController.create", 2)
     assert route["handler"] == "OrderController.create"
     assert route["integrations"]["external_apis"][0]["url"].endswith("/v2/charges/{id}")
 
@@ -346,20 +344,19 @@ def _llm_returning(titles):
 
 
 def test_title_is_display_only_and_stable(client, isolated_storage, monkeypatch):
-    monkeypatch.setattr(routes.version_service, "base_path", str(isolated_storage / "database"))
     # v1 and v2 of create get different LLM wording; the first one is kept
     monkeypatch.setattr(doc_service.generator, "generate_explanation",
                         _llm_returning(["Place Order", "Search Order", "Cancel Order", "List Orders", "Create a New Order", "Find Order", "List All Orders"]))
 
     for scan in (SPRING_SCAN, SPRING_SCAN_V2):
-        assert client.post("/analyze", json=json.loads(scan.read_text())).status_code == 200
+        analyze(client, json.loads(scan.read_text()))
 
     api = "OrderController.create"
     # versions still tracked under the stable name
     assert docs_store.list_versions("spring-shop", api) == [1, 2]
     assert docs_store.get_title("spring-shop", api) == "Place Order"
     assert docs_store.read_version("spring-shop", api, 2).startswith("# Place Order\n")
-    assert routes.version_service.get_version("spring-shop", api, 2)["title"] == "Place Order"
+    assert docs_store.version_entry("spring-shop", api, 2)["title"] == "Place Order"
 
     page = client.get(f"/ui/spring-shop/{api}").text
     assert "Place Order" in page and api in page          # title shown, id kept visible
@@ -569,21 +566,19 @@ def test_architecture_page_uses_the_layered_diagram(two_versions):
 
 def test_uploads_need_the_token_when_one_is_configured(client, monkeypatch):
     from app.api import routes as r
-    monkeypatch.setattr(r, "process_routes", lambda *a: None)
-    monkeypatch.setattr(r, "save_architecture", lambda *a: None)
     report = {"scanner_version": "2.0", "repository": "shop", "commit": "abc", "routes": []}
 
-    assert client.post("/analyze", json=report).status_code == 200          # no token configured: open
+    assert client.post("/analyze", json=report).status_code == 202          # no token configured: open
     monkeypatch.setattr(r, "INGEST_TOKEN", "s3cret")
     assert client.post("/analyze", json=report).status_code == 401
     assert client.post("/analyze", json=report, headers={"Authorization": "Bearer wrong"}).status_code == 401
-    assert client.post("/analyze", json=report, headers={"Authorization": "Bearer s3cret"}).status_code == 200
+    assert client.post("/analyze", json=report, headers={"Authorization": "Bearer s3cret"}).status_code == 202
     bad = client.post("/analyze", json={**report, "repository": "../etc"}, headers={"Authorization": "Bearer s3cret"})
     assert bad.status_code == 400
 
 
 def test_health_endpoint(client):
-    assert client.get("/healthz").json()["status"] == "ok"
+    assert client.get("/healthz").json() == {"status": "ok", "database": "ok", "version": client.get("/healthz").json()["version"]}
 
 
 # ============================
@@ -603,10 +598,12 @@ XSS = """
 
 
 def _poison(api, version, text):
-    import os
-    path = os.path.join(docs_store.api_path("spring-shop", api), f"v{version}.md")
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(text)
+    from sqlalchemy import update
+    from app import db
+    table = db.api_versions
+    with db.engine().begin() as conn:
+        conn.execute(update(table).where(table.c.repo == "spring-shop", table.c.api == api, table.c.version == version)
+                     .values(content=table.c.content + text))
 
 
 def _no_live_script(html_text):
@@ -647,3 +644,27 @@ def test_pages_carry_a_nonce_csp_that_matches_every_script(two_versions):
     assert again != csp
     # JSON APIs get the hardening headers but no page CSP
     assert "content-security-policy" not in two_versions.get("/healthz").headers
+
+
+def test_uploads_are_queued_and_visible_until_documented(client, isolated_storage):
+    payload = json.loads(SPRING_SCAN.read_text())
+    queued = client.post("/analyze", json=payload)
+    assert queued.status_code == 202
+    job_id = queued.json()["job_id"]
+    assert client.post("/analyze", json=payload).json() == {**queued.json(), "status": "already_queued"}
+
+    job = client.get(f"/api/jobs/{job_id}").json()
+    assert (job["status"], job["repo"], job["commit"]) == ("queued", "spring-shop", "abc1234")
+    assert [j["id"] for j in client.get("/api/jobs", params={"active": True}).json()["jobs"]] == [job_id]
+
+    # nothing documented yet: the dashboard and the repo page show the upload in progress
+    assert "Processing uploads" in client.get("/ui").text
+    repo_page = client.get("/ui/spring-shop")
+    assert repo_page.status_code == 200 and "Processing uploads" in repo_page.text and "/static/jobs.js" in repo_page.text
+
+    jobs.run_pending()
+    done = client.get(f"/api/jobs/{job_id}").json()
+    assert done["status"] == "done" and done["result"] == {"created": 4, "unchanged": 0, "endpoints": 4}
+    assert (done["progress_done"], done["progress_total"]) == (4, 4)
+    assert "Processing uploads" not in client.get("/ui").text
+    assert client.get("/api/jobs/999999").status_code == 404

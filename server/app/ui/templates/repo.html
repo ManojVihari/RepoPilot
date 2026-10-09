@@ -1,5 +1,5 @@
 {% extends "_ui/base.html" %}
-{% from "_ui/macros.html" import icon, method, stat, breadcrumbs %}
+{% from "_ui/macros.html" import icon, method, stat, breadcrumbs, jobs_panel %}
 {% block title %}{{ repo }}{% endblock %}
 {% block content %}
 {{ breadcrumbs([('Dashboard', '/ui'), (repo, None)]) }}
@@ -11,6 +11,8 @@
     </div>
     {% if summary.has_architecture %}<a class="btn btn-primary" href="/ui/{{ repo }}/architecture">{{ icon('arch') }} Architecture</a>{% endif %}
 </div>
+
+{% if jobs.active or jobs.failed %}<div style="margin:-8px 0 24px">{{ jobs_panel(jobs, request.state.csp_nonce) }}</div>{% endif %}
 
 <div class="grid grid-stats">
     {{ stat('APIs', summary.api_count) }}
