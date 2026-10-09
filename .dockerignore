@@ -1,0 +1,12 @@
+# build context is the repository root (server image)
+.git
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+**/.pytest_cache
+.env
+server/docs
+server/database
+server/tests
+scanner/tests
+scripts

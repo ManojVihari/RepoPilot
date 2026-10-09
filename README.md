@@ -136,13 +136,48 @@ exec mergeclear check --base origin/main
 MERGECLEAR_TOKEN=... mergeclear scan --branch main --push https://mergeclear.internal
 ```
 
+**No Python on the build machine?** Use the container (the repository is
+mounted at `/repo`, so pass `--name` or keep a git remote for the repository name):
+```bash
+docker build -t mergeclear/scanner scanner/
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" mergeclear/scanner check --base origin/main
+```
+
 ---
 
 ## The server (self-hosted)
 
+### With Docker Compose
+
+```bash
+cp .env.example .env                    # set MERGECLEAR_TOKEN (openssl rand -hex 32)
+docker compose up -d                    # http://localhost:8000
+docker compose --profile llm up -d      # optional: + Ollama (set MERGECLEAR_LLM=on in .env)
+```
+
+The server runs as a non-root user, keeps everything in the `mergeclear-data`
+volume (`/data`), has a container healthcheck on `/healthz`, and refuses to
+start without `MERGECLEAR_TOKEN`. The `llm` profile adds an Ollama container
+and downloads `OLLAMA_MODEL` once into the `ollama-models` volume. Put it
+behind your usual reverse proxy for TLS.
+
+Building inside a restricted network:
+
+| Situation | Build option |
+|---|---|
+| Docker Hub unreachable or rate-limited | `--build-arg PYTHON_IMAGE=registry.internal/python:3.12-slim` |
+| TLS-inspecting proxy | `--secret id=ca,src=corporate-ca.pem` (used for pip/apt during the build only, not kept in the image) |
+| Base image that already includes git (scanner) | the apt step is skipped |
+
+```bash
+docker build -f server/Dockerfile -t mergeclear/server .            # from the repository root
+```
+
+### Without Docker
+
 ```bash
 pip install ./scanner -r server/requirements.txt
-cd server && python run.py              # http://localhost:8000
+cd server && python run.py              # http://localhost:8000 (development server with reload)
 ```
 
 Then push scans to it (`mergeclear scan --push http://localhost:8000`), or
@@ -169,6 +204,10 @@ checks the setup. Without Ollama the server still works: docs come from the
 scanned facts and QA plans from templates.
 
 Health check: `GET /healthz`.
+
+Security: documentation is built from repository code and model output, so
+every page sanitizes rendered HTML (allowlist) and sends a strict
+Content-Security-Policy with a per-request script nonce.
 
 ---
 
