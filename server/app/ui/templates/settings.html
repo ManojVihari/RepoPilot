@@ -51,25 +51,35 @@
 </p>
 
 {% if new_key %}
+{% set server_url = request.base_url | string | trim('/') %}
 <section class="card card-body new-key" aria-labelledby="new-key-title" style="margin-bottom:24px">
-    <h2 id="new-key-title" class="small">{{ icon('check-circle') }} New key “{{ new_key.name }}”</h2>
-    <p class="small">Copy it now: it is shown only once and cannot be retrieved later.</p>
+    <h2 id="new-key-title" class="small">{{ icon('check-circle') }} New key “{{ new_key.name }}”{% if new_key.project %} for project <code>{{ new_key.project }}</code>{% endif %}</h2>
+    <p class="small">Copy it now: it is shown only once and cannot be retrieved later. Store it as a secret in your CI system.</p>
     <div class="copy-row">
         <code id="new-key-value">{{ new_key.key }}</code>
         <button class="btn btn-sm" type="button" data-copy="new-key-value">Copy</button>
     </div>
-    <p class="xs muted" style="margin:12px 0 4px">Use it with the scanner:</p>
-    <pre class="snippet"><code>export MERGECLEAR_API_KEY={{ new_key.key }}
-mergeclear scan --push {{ request.base_url | string | trim('/') }} --wait</code></pre>
+    <p class="xs muted" style="margin:14px 0 4px">Add this step to the pipeline (for example after a merge to main):</p>
+    <pre class="snippet"><code id="new-key-snippet">pip install mergeclear
+export MERGECLEAR_SERVER={{ server_url }}       # required
+export MERGECLEAR_API_KEY=&lt;this key, from your CI secrets&gt;   # required
+mergeclear scan --commit "$COMMIT_SHA"{% if not new_key.project %} --project &lt;project-name&gt;{% endif %} --push --wait</code></pre>
+    <p class="xs muted" style="margin:6px 0 0">{% if new_key.project %}Uploads go to <strong>{{ new_key.project }}</strong>; add <code>--project &lt;name&gt;</code> to send one to another project.{% else %}This key has no default project, so every upload must name one with <code>--project</code> (or <code>MERGECLEAR_PROJECT</code>).{% endif %}</p>
 </section>
 {% endif %}
 
-<form method="post" action="/settings/api-keys" class="card card-body inline-form" style="margin-bottom:24px">
+<form method="post" action="/settings/api-keys" class="card card-body inline-form" style="margin-bottom:24px" aria-labelledby="create-key-title">
+    <h2 id="create-key-title" class="small" style="width:100%">Create a key</h2>
     <input type="hidden" name="csrf_token" value="{{ me.csrf_token }}">
     <div class="field" style="flex:1;min-width:220px">
         <label for="key-name">Key name</label>
-        <input id="key-name" name="name" required maxlength="100" placeholder="e.g. Jenkins – payments-service" aria-describedby="key-name-hint">
-        <span class="xs muted" id="key-name-hint">Where the key will be used, so you recognise it later.</span>
+        <input id="key-name" name="name" required maxlength="100" placeholder="e.g. Jenkins – payments-service" value="{{ (key_form or {}).name or '' }}" aria-describedby="key-name-hint">
+        <span class="xs muted" id="key-name-hint">Where the key is used, so you recognise it later.</span>
+    </div>
+    <div class="field" style="flex:1;min-width:220px">
+        <label for="key-project">Default project <span class="muted" style="font-weight:400">(optional)</span></label>
+        <input id="key-project" name="project" maxlength="200" placeholder="e.g. payments-service" value="{{ (key_form or {}).project or '' }}" aria-describedby="key-project-hint">
+        <span class="xs muted" id="key-project-hint">Uploads made with this key go to this project when the pipeline does not pass <code>--project</code>. Leave empty if one key serves several projects: each pipeline then names its project.</span>
     </div>
     <button class="btn btn-primary" type="submit">{{ icon('plus') }} Create key</button>
 </form>
@@ -79,11 +89,12 @@ mergeclear scan --push {{ request.base_url | string | trim('/') }} --wait</code>
     {% if keys %}
     <div class="table-wrap"><table class="table">
         <caption class="sr-only">Your API keys</caption>
-        <thead><tr><th scope="col">Name</th><th scope="col">Key</th><th scope="col">Created</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col">Default project</th><th scope="col">Key</th><th scope="col">Created</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
         {% for k in keys %}
         <tr {% if k.revoked_at %}class="muted"{% endif %}>
             <td>{{ k.name }}</td>
+            <td class="small">{% if k.project %}<code>{{ k.project }}</code>{% else %}<span class="muted">pipeline names it</span>{% endif %}</td>
             <td><code class="xs">mc_{{ k.prefix }}_…</code></td>
             <td class="small nowrap">{{ k.created_at | ago }}</td>
             <td class="small nowrap">{{ k.last_used_at | ago or 'never' }}</td>
@@ -175,12 +186,13 @@ mergeclear scan --push {{ request.base_url | string | trim('/') }} --wait</code>
     {% if all_keys %}
     <div class="table-wrap"><table class="table">
         <caption class="sr-only">API keys of every user</caption>
-        <thead><tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Key</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <thead><tr><th scope="col">Name</th><th scope="col">Owner</th><th scope="col">Default project</th><th scope="col">Key</th><th scope="col">Last used</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody>
         {% for k in all_keys %}
         <tr {% if k.revoked_at %}class="muted"{% endif %}>
             <td>{{ k.name }}</td>
             <td class="small">{{ k.email }} <span class="badge role-{{ k.role }}">{{ k.role }}</span></td>
+            <td class="small">{% if k.project %}<code>{{ k.project }}</code>{% else %}<span class="muted">—</span>{% endif %}</td>
             <td><code class="xs">mc_{{ k.prefix }}_…</code></td>
             <td class="small nowrap">{{ k.last_used_at | ago or 'never' }}</td>
             <td class="num">

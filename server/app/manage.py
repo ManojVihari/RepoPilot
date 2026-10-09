@@ -11,8 +11,9 @@ Server administration.
     python -m app.manage reset-password --email E
                                               new temporary password (e.g. a locked-out admin)
     python -m app.manage list-users
-    python -m app.manage create-api-key --email E --name N
-                                              print a new API key of that user (automation, CI bootstrap)
+    python -m app.manage create-api-key --email E --name N [--project P]
+                                              print a new API key of that user (automation, CI bootstrap);
+                                              uploads with it go to project P unless the pipeline names one
 
 The database is MERGECLEAR_DATABASE_URL (or the SQLite default), as for the server.
 """
@@ -150,6 +151,7 @@ def main(argv=None) -> int:
     key = sub.add_parser("create-api-key", help="create an API key for a user")
     key.add_argument("--email", required=True)
     key.add_argument("--name", default="created from the command line")
+    key.add_argument("--project", default="", help="default project of uploads made with this key")
     imp = sub.add_parser("import-files", help="import the file-based layout")
     imp.add_argument("--docs", default=DOCS_DIR, help=f"docs folder (default: {DOCS_DIR})")
     imp.add_argument("--database", default=DATABASE_DIR, help=f"database folder (default: {DATABASE_DIR})")
@@ -183,7 +185,7 @@ def main(argv=None) -> int:
                 user = auth.get_user_by_email(args.email)
                 if user is None or not user["active"]:
                     raise auth.AuthError(f"no active user {args.email}")
-                print(auth.create_api_key(user["id"], args.name)["key"])
+                print(auth.create_api_key(user["id"], args.name, args.project)["key"])
             else:
                 for u in auth.list_users():
                     print(f"{u['email']:<40} {u['role']:<7} {'active' if u['active'] else 'deactivated'}")

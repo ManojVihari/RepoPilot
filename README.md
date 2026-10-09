@@ -72,19 +72,87 @@ folder:
 
 | Setting | Flag | Environment | `mergeclear.yml` |
 |---|---|---|---|
-| Server URL | `--push URL`, `--server URL` | `MERGECLEAR_SERVER` | `server:` |
-| API key (Settings → API keys on the server) | | `MERGECLEAR_API_KEY` | (never put keys in the repo) |
-| Repository name | `--name` | `MERGECLEAR_NAME` | `name:` |
+| Server URL (**required to upload**) | `--push URL`, `--server URL` | `MERGECLEAR_SERVER` | `server:` |
+| API key (**required to upload**; Settings → API keys on the server) | | `MERGECLEAR_API_KEY` | (never put keys in the repo) |
+| Project on the server | `--project` | `MERGECLEAR_PROJECT` | `project:` |
 | Branch (detached CI checkouts) | `--branch` | `MERGECLEAR_BRANCH` | `branch:` |
 
-The repository name defaults to the git remote's name (when scanning the
-repository root) or the folder name.
+Uploading needs both the server URL and an API key; the scanner stops with one
+message naming whatever is missing before it sends anything.
+
+**Project.** Each upload lands in a project on the server. Name it with
+`--project` (one key can then serve many repositories); without it, the upload
+goes to the **default project of the API key** (set when the key is created).
+If neither is set the server refuses the upload and says so. (`--name`,
+`MERGECLEAR_NAME` and `name:` still work as older spellings.) Local commands
+(`check`, `diff`, reports written with `--out`) label results with the project
+when given, else the git remote's name or the folder name.
 
 ---
 
 ## Use it in any pipeline
 
-There is no plugin to install: every recipe is the same two commands. Uploading needs an admin's API key in `MERGECLEAR_API_KEY`. Fetch
+There is no plugin to install: add one step that installs the scanner and runs
+it. All processing (documentation, versions, QA plans) happens on the server;
+the step only scans the checkout and uploads the report. When it runs is up to
+your pipeline: typically on merges to main (document what the merge changed)
+and/or on pull requests (`check`, to gate the merge).
+
+**Upload on merge.** Store two secrets in the CI system, both required:
+
+- `MERGECLEAR_SERVER`: the server URL, e.g. `https://mergeclear.internal`
+- `MERGECLEAR_API_KEY`: an admin's key from **Settings → API keys**
+
+and pass `--project <name>` unless the key has a default project.
+`--commit SHA` uploads only the endpoints that commit touched (for a merge
+commit: everything the merged branch changed); drop it to upload every endpoint.
+
+```yaml
+# GitHub Actions: on push to main
+on: { push: { branches: [main] } }
+jobs:
+  mergeclear:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 2 }
+      - run: pipx install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+      - run: mergeclear scan --project payments-service --commit ${{ github.sha }} --branch main --push --wait
+        env:
+          MERGECLEAR_SERVER: ${{ secrets.MERGECLEAR_SERVER }}
+          MERGECLEAR_API_KEY: ${{ secrets.MERGECLEAR_API_KEY }}
+```
+
+```yaml
+# GitLab CI: on the default branch (MERGECLEAR_SERVER / MERGECLEAR_API_KEY as masked CI/CD variables)
+mergeclear-upload:
+  image: python:3.12
+  rules: [{ if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH' }]
+  script:
+    - pip install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+    - mergeclear scan --project payments-service --commit $CI_COMMIT_SHA --branch $CI_COMMIT_BRANCH --push --wait
+```
+
+```groovy
+// Jenkins: credentials 'mergeclear-server' and 'mergeclear-api-key' (secret text)
+stage('Mergeclear') {
+  when { branch 'main' }
+  environment {
+    MERGECLEAR_SERVER  = credentials('mergeclear-server')
+    MERGECLEAR_API_KEY = credentials('mergeclear-api-key')
+  }
+  steps {
+    sh 'pip install --user "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"'
+    sh '~/.local/bin/mergeclear scan --project payments-service --commit "$GIT_COMMIT" --branch main --push --wait'
+  }
+}
+```
+
+(`--wait` blocks until the server has documented the upload and fails the step
+if it could not.)
+
+**Check pull requests before merging.** This needs no server: it compares the
+change with the target branch locally and fails on breaking changes. Fetch
 enough history for the base ref to exist.
 
 **Any CI / shell**
@@ -131,14 +199,14 @@ stage('Mergeclear') {
 exec mergeclear check --base origin/main
 ```
 
-**Keep the server's docs up to date** (after merges to main, or from cron)
+**From cron or a shell** (full upload of main)
 ```bash
-MERGECLEAR_API_KEY=... mergeclear scan --branch main --push https://mergeclear.internal --wait
+MERGECLEAR_SERVER=https://mergeclear.internal MERGECLEAR_API_KEY=... \
+  mergeclear scan --project payments-service --branch main --push --wait
 ```
-(`--wait` blocks until the server has documented the upload and fails if it could not.)
 
 **No Python on the build machine?** Use the container (the repository is
-mounted at `/repo`, so pass `--name` or keep a git remote for the repository name):
+mounted at `/repo`):
 ```bash
 docker build -t mergeclear/scanner scanner/
 docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" mergeclear/scanner check --base origin/main
@@ -179,9 +247,15 @@ What runs:
    reset passwords and deactivate accounts (this ends their sessions and keys).
    `MERGECLEAR_ALLOW_SIGNUP=true` lets people create their own viewer account.
 3. Create an **API key** under **Settings → API keys** for each pipeline or
-   script, and give it to the scanner as `MERGECLEAR_API_KEY`. A key acts with
-   its owner's role and is shown once; only a hash is stored. Keys show when
-   they were last used and can be revoked (admins see and revoke everyone's).
+   script, and give it to the scanner as `MERGECLEAR_API_KEY` (with the server
+   URL as `MERGECLEAR_SERVER`). A key acts with its owner's role and is shown
+   once; only a hash is stored. Keys show when they were last used and can be
+   revoked (admins see and revoke everyone's).
+   A key can have a **default project**: uploads made with it go there unless
+   the pipeline passes `--project`. Give each repository's pipeline its own key
+   with a default project, or share one key without a default and name the
+   project in every pipeline. From the shell:
+   `python -m app.manage create-api-key --email you@corp --name ci --project payments-service`.
 
 | | viewer | admin |
 |---|---|---|

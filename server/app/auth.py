@@ -47,6 +47,7 @@ class Principal:
     via: str = "session"              # session | api_key
     csrf_token: Optional[str] = None
     key_name: Optional[str] = None
+    key_project: Optional[str] = None      # default project of the API key used
 
     @property
     def is_admin(self) -> bool:
@@ -300,20 +301,33 @@ def _expired(moment) -> bool:
 
 # ---------------------------------------------------------------- API keys
 
-def create_api_key(user_id: int, name: str) -> dict:
-    """-> {id, name, prefix, key}: `key` is shown once and never stored."""
+def check_project_name(project: Optional[str]) -> Optional[str]:
+    """A project name usable in URLs (as the scanner sends it), or None when empty."""
+    from app.services.docs_store import is_safe_name
+
+    project = (project or "").strip()
+    if not project:
+        return None
+    if not is_safe_name(project):
+        raise AuthError("A project name cannot contain / or \\ and has at most 200 characters.")
+    return project
+
+
+def create_api_key(user_id: int, name: str, project: Optional[str] = None) -> dict:
+    """-> {id, name, project, prefix, key}: `key` is shown once and never stored."""
     name = (name or "").strip()[:100] or "API key"
+    project = check_project_name(project)
     prefix = secrets.token_hex(6)
     secret = secrets.token_urlsafe(32)
     with db.engine().begin() as conn:
         key_id = conn.execute(insert(api_keys).values(
-            user_id=user_id, name=name, prefix=prefix, secret_hash=_sha256(secret), created_at=db.utcnow(),
+            user_id=user_id, name=name, project=project, prefix=prefix, secret_hash=_sha256(secret), created_at=db.utcnow(),
         ).returning(api_keys.c.id)).scalar_one()
-    return {"id": key_id, "name": name, "prefix": prefix, "key": f"{KEY_PREFIX}_{prefix}_{secret}"}
+    return {"id": key_id, "name": name, "project": project, "prefix": prefix, "key": f"{KEY_PREFIX}_{prefix}_{secret}"}
 
 
 def list_api_keys(user_id: Optional[int] = None) -> List[dict]:
-    query = select(api_keys.c.id, api_keys.c.user_id, api_keys.c.name, api_keys.c.prefix, api_keys.c.created_at,
+    query = select(api_keys.c.id, api_keys.c.user_id, api_keys.c.name, api_keys.c.project, api_keys.c.prefix, api_keys.c.created_at,
                    api_keys.c.last_used_at, api_keys.c.revoked_at, users.c.email, users.c.role) \
         .join(users, users.c.id == api_keys.c.user_id)
     if user_id is not None:
@@ -339,7 +353,8 @@ def principal_from_api_key(raw: Optional[str]) -> Optional[Principal]:
     _, prefix, secret = parts
     with db.engine().connect() as conn:
         row = conn.execute(
-            select(api_keys.c.id.label("key_id"), api_keys.c.name.label("key_name"), api_keys.c.secret_hash,
+            select(api_keys.c.id.label("key_id"), api_keys.c.name.label("key_name"), api_keys.c.project.label("key_project"),
+                   api_keys.c.secret_hash,
                    api_keys.c.revoked_at, api_keys.c.last_used_at, users.c.id.label("user_id"),
                    users.c.email, users.c.name.label("user_name"), users.c.role, users.c.active)
             .join(users, users.c.id == api_keys.c.user_id).where(api_keys.c.prefix == prefix)
@@ -349,7 +364,7 @@ def principal_from_api_key(raw: Optional[str]) -> Optional[Principal]:
     if not hmac.compare_digest(row.secret_hash, _sha256(secret)):
         return None
     _touch_key(row.key_id, row.last_used_at)
-    return Principal(row.user_id, row.email, row.user_name, row.role, False, "api_key", None, row.key_name)
+    return Principal(row.user_id, row.email, row.user_name, row.role, False, "api_key", None, row.key_name, row.key_project)
 
 
 def _touch_key(key_id: int, last_used):

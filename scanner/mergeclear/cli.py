@@ -5,8 +5,8 @@ Works the same on a laptop, in any CI system, in a git hook or a cron job:
 it only reads the file system and git, and reports through files, stdout and
 exit codes.
 
-    mergeclear scan [PATH] [--commit SHA | --since REF] [--out FILE] [--push URL]
-    mergeclear push REPORT [--server URL]
+    mergeclear scan [PATH] [--commit SHA | --since REF] [--out FILE] [--project NAME] [--push URL]
+    mergeclear push REPORT [--server URL] [--project NAME]
     mergeclear diff BASE HEAD [--format text|markdown|json]
     mergeclear check [HEAD] (--against BASE | --base REF) [--fail-on hold|review]
 
@@ -14,7 +14,9 @@ Exit codes: 0 ok / clear, 1 the check failed (hold, or review with
 --fail-on review), 2 usage or runtime error.
 
 Settings are read from flags, then environment variables (MERGECLEAR_SERVER,
-MERGECLEAR_API_KEY), then a mergeclear.yml in the scanned folder.
+MERGECLEAR_API_KEY, MERGECLEAR_PROJECT), then a mergeclear.yml in the scanned
+folder. Uploading needs both a server URL and an API key; the project defaults
+to the API key's project when none is given.
 """
 import argparse
 import json
@@ -116,24 +118,50 @@ def write_json(data, file):
             f.write(text + "\n")
 
 
+def project_name(flag_value, config: dict):
+    """The project uploads go to, when named (flag, MERGECLEAR_PROJECT, mergeclear.yml); None: the API key's project."""
+    value = setting(flag_value, "MERGECLEAR_PROJECT", config, "project")
+    if value in (None, ""):
+        value = setting(None, "MERGECLEAR_NAME", config, "name")      # older names of the setting
+    if value is None:
+        return None
+    return str(value).strip() or None
+
+
+def require_upload_settings(server, token):
+    """Both are required to upload; name everything that is missing at once, before any request."""
+    missing = []
+    if not server:
+        missing.append("the server URL (--push URL / --server URL, MERGECLEAR_SERVER, or `server:` in mergeclear.yml)")
+    if not token:
+        missing.append("an API key (MERGECLEAR_API_KEY, created under Settings → API keys on the server)")
+    if missing:
+        raise CliError("uploading needs " + " and ".join(missing))
+
+
 def push_report(report: dict, server: str, token: str = None) -> dict:
     import requests
 
-    if not server:
-        raise CliError("no server: pass --server, set MERGECLEAR_SERVER or add `server:` to mergeclear.yml")
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    require_upload_settings(server, token)
+    headers = {"Authorization": f"Bearer {token}"}
     url = server.rstrip("/") + "/analyze"
     try:
         response = requests.post(url, json=report, headers=headers, timeout=120)
     except requests.RequestException as e:
         raise CliError(f"could not reach {url}: {e}")
     if response.status_code == 401:
-        raise CliError(f"{url} needs an API key (401): create one under Settings → API keys on the server "
-                       "and set MERGECLEAR_API_KEY")
+        raise CliError(f"{url} did not accept the API key (401): it is unknown or revoked; create one under "
+                       "Settings → API keys on the server and set MERGECLEAR_API_KEY")
     if response.status_code == 403:
         raise CliError(f"{url} refused the upload (403): the API key must belong to an admin")
     if response.status_code == 503:
         raise CliError(f"{url} is not set up yet (503): open it in a browser and create the admin account")
+    if response.status_code == 400:
+        try:
+            reason = response.json().get("error") or response.text[:300]
+        except ValueError:
+            reason = response.text[:300]
+        raise CliError(f"{url} refused the upload: {reason}")
     if not response.ok:
         raise CliError(f"{url} answered {response.status_code}: {response.text[:300]}")
     return response.json() if response.content else {}
@@ -253,7 +281,11 @@ def emit(result: dict, fmt: str, out: str = None):
 # ---------------------------------------------------------------- commands
 
 def build_report(path, name=None, branch=None, commit=None, since=None, config=None) -> dict:
-    """Scan a folder into a report with repository facts (name, commit, branch)."""
+    """
+    Scan a folder into a report with repository facts (project, commit, branch).
+    `project` is the name given (flag, env, config) or None, so the server uses the
+    API key's project; `repository` is always filled (given name, git remote or folder).
+    """
     from mergeclear.core.scanner import Scanner
 
     path = os.path.abspath(path)
@@ -275,7 +307,8 @@ def build_report(path, name=None, branch=None, commit=None, since=None, config=N
     else:
         report = scanner.scan_full(path, label=label)
 
-    report["repository"] = setting(name, "MERGECLEAR_NAME", config, "name") or facts["name"] or report["repository"]
+    report["project"] = project_name(name, config)
+    report["repository"] = report["project"] or facts["name"] or report["repository"]
     report["commit"] = label
     report["branch"] = setting(branch, "MERGECLEAR_BRANCH", config, "branch") or facts["branch"]
     report["dirty"] = facts["dirty"]
@@ -318,8 +351,15 @@ def scan_ref(path: str, ref: str, name: str) -> dict:
             subprocess.run(["git", "worktree", "remove", "--force", worktree], cwd=top, capture_output=True)
 
 
+def _report_sent(server, answer):
+    logger.info("sent to %s as project %s (%s)", server, answer.get("project") or "?",
+                answer.get("job_url") or answer.get("status", "ok"))
+
+
 def cmd_scan(args) -> int:
     config = load_config(os.path.abspath(args.path)) if os.path.isdir(args.path) else {}
+    if args.push is not None:      # fail before scanning when the upload cannot work
+        require_upload_settings(setting(args.push, "MERGECLEAR_SERVER", config, "server"), api_key())
     report = build_report(args.path, name=args.name, branch=args.branch, commit=args.commit, since=args.since, config=config)
 
     if args.out or args.push is None:
@@ -328,7 +368,7 @@ def cmd_scan(args) -> int:
         server = setting(args.push, "MERGECLEAR_SERVER", config, "server")
         token = api_key()
         answer = push_report(report, server, token)
-        logger.info("sent to %s (%s)", server, answer.get("job_url") or answer.get("status", "ok"))
+        _report_sent(server, answer)
         if args.wait:
             _report_done(wait_for_job(server, answer, token, timeout=args.wait))
     elif args.wait:
@@ -341,9 +381,11 @@ def cmd_push(args) -> int:
     config = load_config(os.getcwd())
     server = setting(args.server, "MERGECLEAR_SERVER", config, "server")
     token = api_key()
+    named = project_name(args.name, config)
+    if named:
+        report["project"] = report["repository"] = named
     answer = push_report(report, server, token)
-    logger.info("sent %s @ %s to %s (%s)", report.get("repository"), _short(report.get("commit")), server,
-                answer.get("job_url") or answer.get("status", "ok"))
+    _report_sent(server, answer)
     if args.wait:
         _report_done(wait_for_job(server, answer, token, timeout=args.wait))
     return EXIT_OK
@@ -396,7 +438,8 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--out", "-o", metavar="FILE", help="write the report here (default: stdout unless --push)")
     scan.add_argument("--push", nargs="?", const="", metavar="URL",
                       help="send the report to a Mergeclear server (URL, or MERGECLEAR_SERVER / mergeclear.yml)")
-    scan.add_argument("--name", help="repository name (default: git remote or folder name)")
+    scan.add_argument("--project", "--name", dest="name", metavar="NAME",
+                      help="project on the server (default: MERGECLEAR_PROJECT, mergeclear.yml, else the API key's project)")
     scan.add_argument("--branch", help="branch name, for detached CI checkouts")
     scan.add_argument("--wait", nargs="?", const=600, type=float, metavar="SECONDS", help="after pushing, wait until the server has documented the upload (default limit 600 s)")
     scan.set_defaults(run=cmd_scan)
@@ -404,6 +447,8 @@ def build_parser() -> argparse.ArgumentParser:
     push = sub.add_parser("push", help="send a report to a Mergeclear server")
     push.add_argument("report", help="report file written by `mergeclear scan --out`")
     push.add_argument("--server", help="server URL (default: MERGECLEAR_SERVER or mergeclear.yml)")
+    push.add_argument("--project", "--name", dest="name", metavar="NAME",
+                      help="project on the server (default: the report's, else the API key's project)")
     push.add_argument("--wait", nargs="?", const=600, type=float, metavar="SECONDS", help="after pushing, wait until the server has documented the upload (default limit 600 s)")
     push.set_defaults(run=cmd_push)
 
@@ -417,7 +462,8 @@ def build_parser() -> argparse.ArgumentParser:
             against = p.add_mutually_exclusive_group(required=True)
             against.add_argument("--against", metavar="REPORT", help="report of the base")
             against.add_argument("--base", metavar="REF", help="git ref to compare with, scanned in a temporary worktree (e.g. origin/main)")
-            p.add_argument("--name", help="repository name when scanning (default: git remote or folder name)")
+            p.add_argument("--project", "--name", dest="name", metavar="NAME",
+                           help="project name in the result (default: git remote or folder name)")
             p.add_argument("--fail-on", choices=("hold", "review", "never"), default="hold",
                            help="exit 1 at this verdict or worse (default: hold)")
         p.add_argument("--format", "-f", choices=("text", "markdown", "json"), default="text")

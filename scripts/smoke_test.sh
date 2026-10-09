@@ -42,19 +42,26 @@ step "a fresh server asks for setup and refuses uploads"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$SERVER/analyze" -H 'content-type: application/json' -d '{}')" = 503 ] \
   || fail "upload before setup was not refused"
 
-step "create an admin and an API key"
+step "create an admin and API keys (one with a default project)"
 docker compose exec -T server python -m app.manage create-user --email smoke@example.com --role admin >/dev/null
-KEY="$(docker compose exec -T server python -m app.manage create-api-key --email smoke@example.com --name smoke 2>/dev/null | tr -d '\r')"
+KEY="$(docker compose exec -T server python -m app.manage create-api-key --email smoke@example.com --name smoke --project smoke 2>/dev/null | tr -d '\r')"
 case "$KEY" in mc_*) ;; *) fail "no API key created";; esac
+PLAIN_KEY="$(docker compose exec -T server python -m app.manage create-api-key --email smoke@example.com --name shared 2>/dev/null | tr -d '\r')"
 
-step "uploads need a valid key"
+step "uploads need the server URL, a valid key and a project"
 code=$(docker run --rm --network host -v "$FIXTURE:/repo:ro" "$SCANNER_IMAGE" \
-  scan --name smoke --push "$SERVER" >/dev/null 2>&1; echo $?)
+  scan --push "$SERVER" >/dev/null 2>&1; echo $?)
 [ "$code" = 2 ] || fail "upload without a key was not refused (exit $code)"
+code=$(docker run --rm --network host -e MERGECLEAR_API_KEY="$KEY" -v "$FIXTURE:/repo:ro" "$SCANNER_IMAGE" \
+  scan --push >/dev/null 2>&1; echo $?)
+[ "$code" = 2 ] || fail "upload without a server URL was not refused (exit $code)"
+out=$(docker run --rm --network host -e MERGECLEAR_API_KEY="$PLAIN_KEY" -v "$FIXTURE:/repo:ro" "$SCANNER_IMAGE" \
+  scan --push "$SERVER" 2>&1) && fail "upload without a project was not refused"
+echo "$out" | grep -q -- "--project" || fail "no hint to pass --project: $out"
 
-step "scan, upload and wait until documented"
-docker run --rm --network host -e MERGECLEAR_API_KEY="$KEY" -v "$FIXTURE:/repo:ro" "$SCANNER_IMAGE" \
-  scan --name smoke --push "$SERVER" --wait 300 || fail "upload or documentation failed"
+step "scan, upload (project from the key) and wait until documented"
+docker run --rm --network host -e MERGECLEAR_API_KEY="$KEY" -e MERGECLEAR_SERVER="$SERVER" -v "$FIXTURE:/repo:ro" \
+  "$SCANNER_IMAGE" scan --push --wait 300 || fail "upload or documentation failed"
 jobs_json=$(curl -sf -H "Authorization: Bearer $KEY" "$SERVER/api/jobs?limit=1")
 echo "$jobs_json" | grep -q '"status":"done"' || fail "job not done: $jobs_json"
 echo "$jobs_json" | grep -q '"created":4' || fail "expected 4 documented endpoints: $jobs_json"

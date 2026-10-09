@@ -145,6 +145,8 @@ api_keys = Table(
     Column("id", Id, primary_key=True, autoincrement=True),
     Column("user_id", Id, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
     Column("name", String(100), nullable=False),
+    # project that uploads with this key go to when the pipeline does not name one
+    Column("project", String(200)),
     Column("prefix", String(32), nullable=False, unique=True),       # shown in lists, looked up on use
     Column("secret_hash", String(64), nullable=False),
     Timestamp(name="created_at", nullable=False),

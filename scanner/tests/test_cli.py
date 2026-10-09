@@ -158,6 +158,7 @@ def test_push_sends_the_report_with_the_token(shop, tmp_path, monkeypatch, capsy
     assert sent["url"] == "http://mergeclear.internal/analyze"
     assert sent["headers"] == {"Authorization": "Bearer s3cret"}
     assert sent["report"]["repository"] == "shop-api"
+    assert sent["report"]["project"] == "shop-api"          # `name:` is the older spelling of `project:`
 
     out = tmp_path / "r.json"
     out.write_text(json.dumps(sent["report"]))
@@ -220,6 +221,7 @@ def test_push_can_wait_until_the_server_documented_the_upload(shop, tmp_path, mo
     states[:] = [{"id": 7, "status": "queued"}, {"id": 7, "status": "running", "progress_done": 2, "progress_total": 4},
                  {"id": 7, "status": "done", "result": {"created": 3, "unchanged": 1}}]
     caplog.set_level(logging.INFO, logger="mergeclear.cli")
+    monkeypatch.setenv("MERGECLEAR_API_KEY", "k")
     assert run("scan", shop, "--push", "http://mc", "--wait") == 0
     assert "job 7: running, 2 of 4 endpoints" in caplog.text
     assert "documented: 3 new version(s), 1 unchanged" in caplog.text
@@ -252,3 +254,81 @@ def test_server_answers_explain_what_to_do(shop, tmp_path, monkeypatch, capsys):
         assert run("push", report, "--server", "http://mc") == cli.EXIT_ERROR
         assert hint in capsys.readouterr().err
         assert seen["headers"] == {"Authorization": "Bearer old-name-still-works"}
+
+
+def test_uploading_needs_both_the_server_url_and_an_api_key(shop, monkeypatch, capsys):
+    import requests
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: pytest.fail("no request without both settings"))
+    for name in ("MERGECLEAR_API_KEY", "MERGECLEAR_TOKEN", "MERGECLEAR_SERVER"):
+        monkeypatch.delenv(name, raising=False)
+
+    assert run("scan", shop, "--push") == cli.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "the server URL" in err and "an API key" in err           # both named in one message
+    assert run("scan", shop, "--push", "http://mc") == cli.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "an API key" in err and "server URL" not in err
+    monkeypatch.setenv("MERGECLEAR_API_KEY", "k")
+    assert run("scan", shop, "--push") == cli.EXIT_ERROR
+    assert "the server URL" in capsys.readouterr().err
+
+
+def test_the_project_is_sent_when_named_else_left_to_the_api_key(shop, tmp_path, monkeypatch, caplog):
+    import logging
+    import requests
+
+    sent = []
+
+    class Answer:
+        status_code, ok, content = 202, True, b"{}"
+
+        def __init__(self, project):
+            self.project = project
+
+        def json(self):
+            return {"status": "queued", "project": self.project}
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        sent.append(json)
+        return Answer(json.get("project") or "from-key")
+
+    monkeypatch.setattr(requests, "post", fake_post)
+    monkeypatch.setenv("MERGECLEAR_API_KEY", "k")
+    monkeypatch.setenv("MERGECLEAR_SERVER", "http://mc")
+    caplog.set_level(logging.INFO, logger="mergeclear.cli")
+
+    assert run("scan", shop, "--push") == 0
+    assert sent[-1]["project"] is None                               # server uses the key's project
+    assert sent[-1]["repository"] == "shop"                          # still filled, for older servers
+    assert "as project from-key" in caplog.text
+
+    assert run("scan", shop, "--push", "--project", "payments") == 0
+    assert sent[-1]["project"] == sent[-1]["repository"] == "payments"
+    monkeypatch.setenv("MERGECLEAR_PROJECT", "orders")
+    assert run("scan", shop, "--push") == 0
+    assert sent[-1]["project"] == "orders"
+    monkeypatch.delenv("MERGECLEAR_PROJECT")
+    (shop / "mergeclear.yml").write_text("project: billing\n")
+    assert run("scan", shop, "--push") == 0
+    assert sent[-1]["project"] == "billing"
+
+    report = tmp_path / "r.json"
+    report.write_text(json.dumps(sent[-1]))
+    assert run("push", report, "--project", "renamed") == 0
+    assert sent[-1]["project"] == "renamed"
+
+
+def test_the_servers_reason_is_shown_when_it_refuses_an_upload(shop, tmp_path, monkeypatch, capsys):
+    import requests
+
+    class Answer:
+        status_code, ok, content, text = 400, False, b"x", "x"
+
+        def json(self):
+            return {"error": "no project name: pass --project <name>"}
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Answer())
+    monkeypatch.setenv("MERGECLEAR_API_KEY", "k")
+    assert run("scan", shop, "--push", "http://mc") == cli.EXIT_ERROR
+    assert "refused the upload: no project name" in capsys.readouterr().err

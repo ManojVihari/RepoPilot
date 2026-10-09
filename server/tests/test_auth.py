@@ -209,6 +209,40 @@ def test_api_keys_are_shown_once_work_for_uploads_and_can_be_revoked(admin):
     assert scanner.post("/analyze", json=SCAN, headers=headers).status_code == 401
 
 
+def test_a_key_can_carry_the_project_its_uploads_go_to(admin):
+    page = admin.get("/settings/api-keys").text
+    assert "Default project" in page and "does not pass <code>--project</code>" in page   # explained when creating
+
+    bad = admin.post("/settings/api-keys", data={"name": "ci", "project": "a/b", "csrf_token": csrf(page)})
+    assert bad.status_code == 400 and "cannot contain /" in bad.text and auth.list_api_keys() == []
+
+    created = admin.post("/settings/api-keys", data={"name": "ci", "project": " payments ", "csrf_token": csrf(page)})
+    key = re.search(r'id="new-key-value">([^<]+)<', created.text).group(1)
+    assert "for project <code>payments</code>" in created.text and "MERGECLEAR_SERVER=http://testserver" in created.text
+    assert "<code>payments</code>" in admin.get("/settings/api-keys").text            # listed with the key
+    plain = auth.create_api_key(auth.get_user_by_email("admin@example.com")["id"], "shared")["key"]
+
+    scanner = TestClient(app)
+
+    def upload(key, **fields):
+        return scanner.post("/analyze", json={**SCAN, **fields}, headers={"Authorization": f"Bearer {key}"})
+
+    # the pipeline names no project: the key's project
+    queued = upload(key, project=None)
+    assert queued.status_code == 202 and queued.json()["project"] == "payments"
+    # the pipeline names one: it wins
+    assert upload(key, project="orders", commit="c2").json()["project"] == "orders"
+    assert upload(plain, project="orders", commit="c3").json()["project"] == "orders"
+    # neither: refused with what to do
+    refused = upload(plain, project=None, commit="c4")
+    assert refused.status_code == 400 and "--project" in refused.json()["error"]
+    assert upload(plain, project="../etc", commit="c5").status_code == 400
+    # scanners before 0.3 send only `repository`
+    legacy = {k: v for k, v in SCAN.items() if k != "project"}
+    assert upload(plain, **legacy).json()["project"] == SCAN["repository"]
+    assert upload(key, **{**legacy, "repository": "", "commit": "c6"}).json()["project"] == "payments"
+
+
 def test_a_viewer_key_reads_but_cannot_upload(viewer):
     vic = auth.get_user_by_email("viewer@example.com")
     key = auth.create_api_key(vic["id"], "notebook")["key"]

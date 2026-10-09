@@ -135,16 +135,30 @@ async def analyze(request: AnalyzeRequest, http_request: Request):
     denied = _deny(http_request, admin=True, csrf=True)      # API keys need no CSRF token
     if denied:
         return denied
-    if not docs_store.is_safe_name(request.repository):
-        return JSONResponse({"error": f"invalid repository name {request.repository!r} (use --name)"}, status_code=400)
 
-    job, created = await run_in_threadpool(
-        jobs.enqueue, "analyze", request.model_dump(mode="json"), request.repository, request.commit)
+    project = _upload_project(request, http_request.state.user)
+    if not project:
+        return JSONResponse({"error": "no project name: pass --project <name> (or set MERGECLEAR_PROJECT) in the "
+                                      "pipeline, or use an API key created with a default project"}, status_code=400)
+    if not docs_store.is_safe_name(project):
+        return JSONResponse({"error": f"invalid project name {project!r}: no / or \\, at most 200 characters"}, status_code=400)
+
+    payload = {**request.model_dump(mode="json"), "repository": project, "project": project}
+    job, created = await run_in_threadpool(jobs.enqueue, "analyze", payload, project, request.commit)
     return JSONResponse({
         "status": "queued" if created else "already_queued",
+        "project": project,
         "job_id": job["id"],
         "job_url": f"/api/jobs/{job['id']}",
     }, status_code=202)
+
+
+def _upload_project(request: AnalyzeRequest, user) -> Optional[str]:
+    """Explicit project, else the API key's default project; older scanners name it `repository`."""
+    key_project = getattr(user, "key_project", None)
+    if "project" in request.model_fields_set:          # scanner 0.3+: null means "use the key's project"
+        return (request.project or "").strip() or key_project
+    return (request.repository or "").strip() or key_project
 
 
 @router.get("/api/jobs")

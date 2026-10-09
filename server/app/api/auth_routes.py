@@ -165,10 +165,13 @@ def settings_keys(request: Request):
 
 
 @router.post("/settings/api-keys", response_class=HTMLResponse)
-def create_key(request: Request, name: str = Form(""), csrf_token: str = Form("")):
+def create_key(request: Request, name: str = Form(""), project: str = Form(""), csrf_token: str = Form("")):
     if not _csrf(request, csrf_token):
         return _forbidden(request, "Your session changed. Reload the page and try again.")
-    created = auth.create_api_key(request.state.user.id, name)
+    try:
+        created = auth.create_api_key(request.state.user.id, name, project)
+    except auth.AuthError as e:
+        return _settings(request, "keys", 400, error=str(e), key_form={"name": name, "project": project})
     return _settings(request, "keys", new_key=created)
 
 

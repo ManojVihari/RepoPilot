@@ -52,7 +52,10 @@ class AnalyzeRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     scanner_version: str
-    repository: str
+    # project the upload belongs to. Scanners 0.3+ send `project` (null when the pipeline did not
+    # name one: the API key's project is used); older scanners only send `repository`.
+    repository: Optional[str] = None
+    project: Optional[str] = None
     commit: str
 
     # older scanners send one framework, newer ones a list
