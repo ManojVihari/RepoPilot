@@ -12,7 +12,7 @@
     </div>
     <div class="row no-print">
         <a class="btn btn-sm" href="/ui/{{ repo }}/{{ api }}/qa-plan?{% if v1 %}v1={{ v1 }}&{% endif %}v2={{ v2 }}&force=true">{{ icon('refresh') }} Regenerate</a>
-        <button class="btn btn-sm btn-ghost" type="button" onclick="window.print()">{{ icon('printer') }} Print</button>
+        <button class="btn btn-sm btn-ghost" type="button" data-print>{{ icon('printer') }} Print</button>
     </div>
 </div>
 

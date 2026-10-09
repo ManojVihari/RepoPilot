@@ -6,7 +6,7 @@
 <div class="row" style="margin-bottom:20px">
     {% if versions | length > 1 %}
     <label for="version-switch" class="small muted">Version</label>
-    <select id="version-switch" onchange="location='/ui/{{ repo }}/{{ api }}/view/'+this.value">
+    <select id="version-switch" data-navigate="/ui/{{ repo }}/{{ api }}/view/">
         {% for v in versions | reverse %}<option value="{{ v }}" {% if v == version %}selected{% endif %}>v{{ v }}{% if v == latest_version %} (latest){% endif %}</option>{% endfor %}
     </select>
     {% if version is number and version > 1 %}<a class="btn btn-sm btn-ghost" href="/ui/{{ repo }}/{{ api }}/diff?v1={{ version - 1 }}&v2={{ version }}">{{ icon('compare') }} Changes from v{{ version - 1 }}</a>{% endif %}
@@ -18,12 +18,12 @@
 
 <div class="doc-layout">
     <article class="doc card card-body" aria-label="Documentation">
-        {{ content | safe }}
+        {{ content | clean }}
     </article>
     {% if toc %}
     <nav class="toc" aria-label="On this page">
         <div class="toc-title">On this page</div>
-        {{ toc | safe }}
+        {{ toc | clean }}
     </nav>
     {% endif %}
 </div>

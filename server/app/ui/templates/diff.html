@@ -50,14 +50,14 @@
         <tbody{% if section.hidden %} id="skip-{{ loop.index }}" hidden{% endif %}>
         {% for row in section.rows %}
             {% if row[0] == "same" %}
-            <tr><td class="ln">{{ row[1] }}</td><td class="side-old muted">{{ row[2] | safe }}</td><td class="ln">{{ row[3] }}</td><td class="side-new muted">{{ row[4] | safe }}</td></tr>
+            <tr><td class="ln">{{ row[1] }}</td><td class="side-old muted">{{ row[2] | clean }}</td><td class="ln">{{ row[3] }}</td><td class="side-new muted">{{ row[4] | clean }}</td></tr>
             {% elif row[0] == "remove" %}
-            <tr class="rem"><td class="ln">{{ row[1] }}</td><td class="side-old"><span class="marker" aria-label="removed">−</span>{{ row[2] | safe }}</td><td class="ln"></td><td></td></tr>
+            <tr class="rem"><td class="ln">{{ row[1] }}</td><td class="side-old"><span class="marker" aria-label="removed">−</span>{{ row[2] | clean }}</td><td class="ln"></td><td></td></tr>
             {% elif row[0] == "add" %}
-            <tr class="add"><td class="ln"></td><td></td><td class="ln">{{ row[3] }}</td><td class="side-new"><span class="marker" aria-label="added">+</span>{{ row[4] | safe }}</td></tr>
+            <tr class="add"><td class="ln"></td><td></td><td class="ln">{{ row[3] }}</td><td class="side-new"><span class="marker" aria-label="added">+</span>{{ row[4] | clean }}</td></tr>
             {% elif row[0] == "change" %}
-            <tr class="chg-old"><td class="ln">{{ row[1] }}</td><td class="side-old"><span class="marker" aria-label="changed from">−</span>{{ row[2] | safe }}</td><td class="ln"></td><td></td></tr>
-            <tr class="chg-new"><td class="ln"></td><td></td><td class="ln">{{ row[3] }}</td><td class="side-new"><span class="marker" aria-label="changed to">+</span>{{ row[4] | safe }}</td></tr>
+            <tr class="chg-old"><td class="ln">{{ row[1] }}</td><td class="side-old"><span class="marker" aria-label="changed from">−</span>{{ row[2] | clean }}</td><td class="ln"></td><td></td></tr>
+            <tr class="chg-new"><td class="ln"></td><td></td><td class="ln">{{ row[3] }}</td><td class="side-new"><span class="marker" aria-label="changed to">+</span>{{ row[4] | clean }}</td></tr>
             {% endif %}
         {% endfor %}
         </tbody>
@@ -70,7 +70,7 @@
 </section>
 {% endblock %}
 {% block page_scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 document.querySelectorAll('[data-skip]').forEach(function (button) {
     button.addEventListener('click', function () {
         var body = document.getElementById(button.getAttribute('aria-controls'));

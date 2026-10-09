@@ -36,7 +36,7 @@
 </div>
 {% endblock %}
 {% block page_scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function () {
     var box = document.getElementById("qa-generating");
     var elapsed = document.getElementById("qa-elapsed");

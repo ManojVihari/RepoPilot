@@ -61,7 +61,7 @@
 </section>
 {% endblock %}
 {% block page_scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
     (function () {
         // accessible tabs: arrow keys move between tabs
         const tabs = [...document.querySelectorAll('[role="tab"]')];

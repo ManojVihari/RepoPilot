@@ -1,7 +1,7 @@
 {% extends "_ui/api_layout.html" %}
 {% from "_ui/macros.html" import icon %}
 {% block title %}Dependencies · {{ api_title }}{% endblock %}
-{% block head %}<script src="/static/vendor/d3.min.js" defer></script><script src="/static/graph.js" defer></script>{% endblock %}
+{% block head %}<script nonce="{{ request.state.csp_nonce }}" src="/static/vendor/d3.min.js" defer></script><script nonce="{{ request.state.csp_nonce }}" src="/static/graph.js" defer></script>{% endblock %}
 {% block content %}
 {% set bc = impact_data.breaking_changes %}
 {% set scanner = impact_data.source == 'scanner' %}
@@ -151,7 +151,7 @@
 </div>
 {% endblock %}
 {% block page_scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
 (function () {
     var details = document.getElementById("graph-details");
     if (!details) return;

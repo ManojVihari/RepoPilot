@@ -25,7 +25,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
     (function () {
         const form = document.getElementById("ask-form"), input = document.getElementById("ask-input");
         const btn = document.getElementById("ask-btn"), results = document.getElementById("results");
@@ -50,7 +50,7 @@
                 if (data.results && data.results.length) {
                     html += `<h2 class="small faint" style="margin:24px 0 10px;text-transform:uppercase;letter-spacing:.05em">Sources</h2><div class="card"><ul class="list">` +
                         data.results.map(r => `<li class="row" style="justify-content:space-between">
-                            <div><a href="/ui/${encodeURIComponent(r.repo)}/${encodeURIComponent(r.api)}/view/${r.version}" style="font-weight:500">${esc(r.title || r.api)}</a>
+                            <div><a href="/ui/${encodeURIComponent(r.repo)}/${encodeURIComponent(r.api)}/view/${encodeURIComponent(r.version)}" style="font-weight:500">${esc(r.title || r.api)}</a>
                             <div class="xs faint">${esc(r.repo)} · v${esc(r.version)}</div></div>
                             ${r.confidence ? `<span class="badge" title="Match confidence">${Math.round(r.confidence * 100)}% match</span>` : ""}</li>`).join("") +
                         `</ul></div>`;

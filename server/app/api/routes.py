@@ -1,4 +1,5 @@
 import difflib
+import html
 import hmac
 import re
 from datetime import datetime
@@ -10,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import INGEST_TOKEN, LLM_ENABLED, TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
 from app.services import docs_store, ui_data
+from app.services.html_safety import clean_html
 from app.services.architecture_view import layered_component_view, layered_system_view
 from app.services.architecture_store import has_architecture, load_architecture, save_architecture
 from app.services.qa_plan_service import QAPlanService
@@ -41,6 +43,8 @@ def _inline_code(text):
 
 
 templates.env.filters["inline_code"] = _inline_code
+# docs come from repository code and LLM output: never `| safe`, always `| clean`
+templates.env.filters["clean"] = clean_html
 
 DOC_MARKDOWN_EXTENSIONS = [
     "tables",
@@ -329,14 +333,14 @@ def highlight_table_diff(old_html, new_html):
 
             old_cells[i].append(
                 BeautifulSoup(
-                    f"<span class='bg-red-200 px-1 rounded'>{old_text}</span>",
+                    f"<span class='bg-red-200 px-1 rounded'>{html.escape(old_text)}</span>",
                     "html.parser"
                 )
             )
 
             new_cells[i].append(
                 BeautifulSoup(
-                    f"<span class='bg-green-200 px-1 rounded'>{new_text}</span>",
+                    f"<span class='bg-green-200 px-1 rounded'>{html.escape(new_text)}</span>",
                     "html.parser"
                 )
             )

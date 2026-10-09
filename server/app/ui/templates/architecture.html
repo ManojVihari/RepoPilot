@@ -2,7 +2,7 @@
 {% from "_ui/macros.html" import icon, method, stat, breadcrumbs %}
 {% block title %}Architecture · {{ repo }}{% endblock %}
 {% block page_class %}page-wide{% endblock %}
-{% block head %}<script src="/static/arch-diagram.js"></script>{% endblock %}
+{% block head %}<script nonce="{{ request.state.csp_nonce }}" src="/static/arch-diagram.js"></script>{% endblock %}
 {% block content %}
 {% set s = model.summary %}
 {% set documented = apis | map(attribute='name') | list %}
@@ -300,7 +300,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
     const repo = {{ repo | tojson }};
     const systemView = {{ system_view | tojson }};
     const rendered = {};

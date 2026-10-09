@@ -10,7 +10,7 @@
     </div>
 </div>
 
-<form class="row" style="margin-bottom:16px" role="search" onsubmit="return false">
+<form class="row" style="margin-bottom:16px" role="search" data-no-submit>
     <label class="sr-only" for="all-filter">Filter APIs</label>
     <input id="all-filter" type="search" value="{{ q }}" placeholder="Filter by title, name or path…" autocomplete="off" style="flex:1;min-width:220px">
     <label class="sr-only" for="all-repo">Repository</label>
@@ -44,7 +44,7 @@
 <p class="xs faint" style="margin-top:8px" id="all-count" aria-live="polite"></p>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
     (function () {
         const input = document.getElementById("all-filter"), repo = document.getElementById("all-repo");
         const rows = [...document.querySelectorAll("#all-rows tr")];

@@ -584,3 +584,66 @@ def test_uploads_need_the_token_when_one_is_configured(client, monkeypatch):
 
 def test_health_endpoint(client):
     assert client.get("/healthz").json()["status"] == "ok"
+
+
+# ============================
+# SECURITY: untrusted doc content, CSP
+# ============================
+
+XSS = """
+<script>alert('doc')</script>
+<img src=x onerror="alert('img')">
+[click](javascript:alert('link'))
+<a href="https://example.com" onclick="alert('a')">site</a>
+
+| field | rule |
+|---|---|
+| name | &lt;script&gt;alert('cell')&lt;/script&gt; |
+"""
+
+
+def _poison(api, version, text):
+    import os
+    path = os.path.join(docs_store.api_path("spring-shop", api), f"v{version}.md")
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _no_live_script(html_text):
+    import re
+    body = html_text.split("<main", 1)[1]
+    assert "alert(" not in re.sub(r"&lt;script&gt;alert\('cell'\)&lt;/script&gt;", "", body), "unescaped payload in page"
+    assert "onerror" not in body and "onclick" not in body and "javascript:" not in body
+
+
+def test_doc_pages_strip_scripts_from_untrusted_markdown(two_versions):
+    _poison("OrderController.create", 2, XSS)
+    page = two_versions.get("/ui/spring-shop/OrderController.create").text
+    _no_live_script(page)
+    assert 'href="https://example.com"' in page          # harmless markup survives
+
+
+def test_diff_does_not_turn_escaped_text_into_markup(two_versions, monkeypatch):
+    from app.api import routes as r
+    monkeypatch.setattr(r, "summarize_changes", lambda *a: None)
+    _poison("OrderController.create", 1, "\n| field | rule |\n|---|---|\n| name | plain |\n")
+    _poison("OrderController.create", 2, XSS)
+    page = two_versions.get("/ui/spring-shop/OrderController.create/diff", params={"v1": 1, "v2": 2}).text
+    _no_live_script(page)
+
+
+def test_pages_carry_a_nonce_csp_that_matches_every_script(two_versions):
+    import re
+    response = two_versions.get("/ui/spring-shop/OrderController.create/qa-plan")
+    csp = response.headers["content-security-policy"]
+    nonce = re.search(r"'nonce-([^']+)'", csp).group(1)
+    assert "script-src 'self' 'nonce-" in csp and "frame-ancestors 'none'" in csp
+    scripts = re.findall(r"<script[^>]*>", response.text)
+    assert scripts and all(f'nonce="{nonce}"' in s for s in scripts)
+    assert not re.search(r"\son(click|change|submit|load|error)=", response.text)
+    assert response.headers["x-content-type-options"] == "nosniff"
+    # a fresh nonce per response
+    again = two_versions.get("/ui/spring-shop/OrderController.create/qa-plan").headers["content-security-policy"]
+    assert again != csp
+    # JSON APIs get the hardening headers but no page CSP
+    assert "content-security-policy" not in two_versions.get("/healthz").headers

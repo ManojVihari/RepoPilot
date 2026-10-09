@@ -59,7 +59,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
     (function () {
         const input = document.getElementById("repo-filter");
         input.addEventListener("input", () => {

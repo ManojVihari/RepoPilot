@@ -7,7 +7,7 @@
     <title>{% block title %}Mergeclear{% endblock %} · Mergeclear</title>
     <meta name="color-scheme" content="light dark">
     <link rel="stylesheet" href="/static/app.css">
-    <script>
+    <script nonce="{{ request.state.csp_nonce }}">
         // apply the saved theme before first paint (no flash)
         try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
     </script>
@@ -47,7 +47,7 @@
 </main>
 {% endblock %}
 
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
     // theme toggle: light <-> dark, remembered per browser
     (function () {
         const root = document.documentElement, btn = document.getElementById("theme-toggle");
@@ -69,6 +69,11 @@
         document.getElementById("loading-bar").classList.add("active");
     });
     window.addEventListener("pageshow", () => document.getElementById("loading-bar").classList.remove("active"));
+    // declarative behaviours (the CSP allows no inline event handlers)
+    document.querySelectorAll("select[data-navigate]").forEach(select =>
+        select.addEventListener("change", () => { location.href = select.dataset.navigate + encodeURIComponent(select.value); }));
+    document.querySelectorAll("[data-print]").forEach(button => button.addEventListener("click", () => window.print()));
+    document.querySelectorAll("form[data-no-submit]").forEach(form => form.addEventListener("submit", e => e.preventDefault()));
 </script>
 {% block scripts %}{% endblock %}
 </body>

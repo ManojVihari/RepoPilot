@@ -15,7 +15,7 @@
             <a href="/ui/{{ repo }}" class="row" style="font-weight:600;color:var(--text)">{{ icon('layers') }} {{ repo }}</a>
             {% if repos | length > 1 %}
             <label class="sr-only" for="repo-switch">Repository</label>
-            <select id="repo-switch" onchange="location='/ui/'+encodeURIComponent(this.value)">
+            <select id="repo-switch" data-navigate="/ui/">
                 {% for rp in repos %}<option value="{{ rp }}" {% if rp == repo %}selected{% endif %}>{{ rp }}</option>{% endfor %}
             </select>
             {% endif %}
@@ -68,7 +68,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ request.state.csp_nonce }}">
     (function () {
         const input = document.getElementById("api-filter");
         const rows = [...document.querySelectorAll("#api-list li")];

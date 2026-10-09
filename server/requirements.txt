@@ -6,3 +6,4 @@ pydantic>=2
 requests>=2.31
 beautifulsoup4
 markdown>=3.4
+nh3>=0.2.14
