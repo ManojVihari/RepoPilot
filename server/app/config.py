@@ -33,5 +33,11 @@ SESSION_DAYS = float(env("SESSION_DAYS", "7"))
 # Secure flag on the session cookie: "auto" (when the request is https), "true" (behind a TLS proxy) or "false"
 COOKIE_SECURE = (env("COOKIE_SECURE", "auto") or "auto").lower()
 
+# ---- limits (a misconfigured pipeline must not take the server down)
+# largest request body accepted, e.g. a scan report (0: no limit)
+MAX_UPLOAD_BYTES = int(float(env("MAX_UPLOAD_MB", "25")) * 1_000_000)
+# uploads (/analyze) per account per minute, counted per server process (0: no limit)
+UPLOADS_PER_MINUTE = int(env("UPLOADS_PER_MINUTE", "30"))
+
 TEMPLATES_DIR = os.path.join(SERVER_DIR, "app", "ui", "templates")
 STATIC_DIR = os.path.join(SERVER_DIR, "app", "ui", "static")

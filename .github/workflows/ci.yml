@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
   schedule:
     - cron: "17 6 * * 1"          # weekly: new advisories for the locked dependencies
@@ -32,6 +32,8 @@ jobs:
         run: |
           pip install uv
           scripts/lock.sh --check
+      - name: Scanner package builds, passes twine check and installs
+        run: scripts/build_dist.sh
 
   test:
     name: test (python ${{ matrix.python }}, ${{ matrix.db }})

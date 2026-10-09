@@ -25,7 +25,7 @@ RUN --mount=type=secret,id=ca,required=false \
     git config --system --add safe.directory '*'
 
 WORKDIR /src
-COPY requirements.txt setup.py README.md ./
+COPY requirements.txt pyproject.toml README.md ./
 COPY mergeclear ./mergeclear
 # dependencies at their exact, hash-checked versions (requirements.txt is a lock file), then the CLI itself
 RUN --mount=type=secret,id=ca,required=false \

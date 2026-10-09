@@ -1,0 +1,11 @@
+# Build the server image from this checkout instead of pulling a release:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: mergeclear/server:local
+  worker:
+    image: mergeclear/server:local

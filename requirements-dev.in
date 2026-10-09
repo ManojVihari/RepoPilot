@@ -7,3 +7,6 @@ pytest>=8,<10
 httpx2>=2,<3
 ruff>=0.6,<1
 pip-audit>=2.7,<3
+# building and checking the scanner's PyPI distributions (scripts/build_dist.sh)
+build>=1.2,<2
+twine>=5,<7

@@ -1,0 +1,36 @@
+# HTTPS with Caddy (automatic Let's Encrypt certificates) in front of the server.
+#
+#   # in .env: MERGECLEAR_DOMAIN=mergeclear.example.com  (DNS pointing here; ports 80/443 open)
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+#
+# The server is then only reachable through Caddy (and on 127.0.0.1 of the host
+# for administration); session cookies are always marked Secure.
+services:
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2}
+    ports:
+      - "${MERGECLEAR_HTTP_PORT:-80}:80"
+      - "${MERGECLEAR_HTTPS_PORT:-443}:443"
+      - "${MERGECLEAR_HTTPS_PORT:-443}:443/udp"
+    environment:
+      MERGECLEAR_DOMAIN: ${MERGECLEAR_DOMAIN:?set MERGECLEAR_DOMAIN in .env (e.g. mergeclear.example.com)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data            # certificates: keep them, Let's Encrypt rate-limits re-issuing
+      - caddy-config:/config
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+  server:
+    ports: !override
+      - "127.0.0.1:${MERGECLEAR_PORT:-8000}:8000"
+    environment:
+      MERGECLEAR_COOKIE_SECURE: "true"
+      # Caddy sets X-Forwarded-Proto/For; the server is not reachable around it
+      FORWARDED_ALLOW_IPS: "*"
+
+volumes:
+  caddy-data:
+  caddy-config:

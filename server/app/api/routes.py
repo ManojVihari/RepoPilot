@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from app.config import LLM_ENABLED, TEMPLATES_DIR
 from app.models.schema import AnalyzeRequest
-from app import auth, jobs
+from app import auth, jobs, limits
 from app.api import auth_routes
 from app.services import docs_store, ui_data
 from app.services.html_safety import clean_html
@@ -135,6 +135,10 @@ async def analyze(request: AnalyzeRequest, http_request: Request):
     denied = _deny(http_request, admin=True, csrf=True)      # API keys need no CSRF token
     if denied:
         return denied
+    wait = limits.uploads.check(http_request.state.user.id)
+    if wait:
+        return JSONResponse({"error": f"too many uploads from this account (limit {limits.uploads.per_minute} a minute): "
+                                      f"retry in {wait} s"}, status_code=429, headers={"Retry-After": str(wait)})
 
     project = _upload_project(request, http_request.state.user)
     if not project:

@@ -1,0 +1,146 @@
+# Release: push a tag vX.Y.Z whose version matches scanner/mergeclear/__init__.py
+# and has a "## [X.Y.Z]" section in CHANGELOG.md.
+#
+#   git tag v0.3.0 && git push origin v0.3.0
+#
+# Publishes (after the end-to-end smoke test passes):
+#   - ghcr.io/<owner>/mergeclear-server and ghcr.io/<owner>/mergeclear-scanner
+#     tagged X.Y.Z, X.Y and latest (linux/amd64 + linux/arm64)
+#   - a GitHub Release with the scanner's wheel and sdist attached
+# PyPI is uploaded by hand from those files: see README "Releasing".
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Tag, package version and changelog agree
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(python3 -c "import re; print(re.search(r'__version__ = \"([^\"]+)\"', open('scanner/mergeclear/__init__.py').read()).group(1))")
+          [ "$tag" = "$version" ] || { echo "::error::tag v$tag but scanner/mergeclear/__init__.py says $version"; exit 1; }
+          grep -q "^## \[$version\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no '## [$version]' section"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  dist:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --require-hashes -r requirements-dev.txt
+      - run: scripts/build_dist.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  smoke:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/smoke_test.sh
+
+  images:
+    needs: [verify, dist, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - image: mergeclear-server
+            context: .
+            file: server/Dockerfile
+          - image: mergeclear-scanner
+            context: scanner
+            file: scanner/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.licenses=Apache-2.0
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  github-release:
+    needs: [verify, images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '$0 ~ "^## \\[" v "\\]" {on=1; next} on && /^## \[/ {exit} on' CHANGELOG.md > notes.md
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          cat >> notes.md <<NOTES
+
+          ### Install
+          \`\`\`bash
+          pip install "https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/mergeclear-${VERSION}-py3-none-any.whl"
+          docker pull ghcr.io/${owner}/mergeclear-server:${VERSION}
+          docker pull ghcr.io/${owner}/mergeclear-scanner:${VERSION}
+          \`\`\`
+          NOTES
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: gh release create "v$VERSION" dist/* --title "Mergeclear $VERSION" --notes-file notes.md --verify-tag

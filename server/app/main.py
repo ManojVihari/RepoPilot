@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.api.routes import router
 from app import auth, db, jobs
+from app.limits import BodySizeLimit
 from app.api.auth_routes import router as auth_router
 from app.config import STATIC_DIR, WORKERS
 from app.services.html_safety import SECURITY_HEADERS, content_security_policy, new_nonce
@@ -89,6 +90,10 @@ async def security_headers(request: Request, call_next):
     if response.headers.get("content-type", "").startswith("text/html") and not request.url.path.startswith(NO_CSP_PATHS):
         response.headers["Content-Security-Policy"] = content_security_policy(request.state.csp_nonce)
     return response
+
+
+# outermost: refuse oversized bodies before anything reads them
+app.add_middleware(BodySizeLimit)
 
 
 @app.get("/healthz", include_in_schema=False)

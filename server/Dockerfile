@@ -23,7 +23,7 @@ RUN --mount=type=secret,id=ca,required=false \
     pip install --no-cache-dir --require-hashes -r server/requirements.txt
 
 # only the pure-Python contract module is used here, not the tree-sitter scanner
-COPY scanner/setup.py scanner/README.md scanner/
+COPY scanner/pyproject.toml scanner/README.md scanner/
 COPY scanner/mergeclear scanner/mergeclear
 RUN pip install --no-cache-dir --no-deps ./scanner && rm -rf scanner
 

@@ -1,9 +1,12 @@
 # Self-hosted Mergeclear: server + Postgres (+ optional Ollama, extra workers).
 #
-#   cp .env.example .env                            # set MERGECLEAR_DB_PASSWORD
-#   docker compose up -d                            # server + Postgres
+#   cp .env.example .env                            # set MERGECLEAR_DB_PASSWORD (and MERGECLEAR_VERSION)
+#   docker compose up -d                            # server + Postgres, released images from ghcr.io
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build   # built from this checkout
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml up -d          # + HTTPS (Caddy), see README
 #   docker compose --profile llm up -d              # + Ollama (set MERGECLEAR_LLM=on in .env)
 #   docker compose --profile workers up -d --scale worker=3   # + dedicated job workers
+#   scripts/backup.sh / scripts/restore.sh FILE     # database backups, see README
 #
 # Then open http://<host>:8000, create the admin account, and make an API key under
 # Settings → API keys for scanners:  MERGECLEAR_API_KEY=... mergeclear scan --push http://<host>:8000
@@ -27,10 +30,7 @@ services:
     # not published on the host: only the server talks to it
 
   server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-    image: mergeclear/server:${MERGECLEAR_VERSION:-latest}
+    image: ${MERGECLEAR_SERVER_IMAGE:-ghcr.io/manojvihari/mergeclear-server}:${MERGECLEAR_VERSION:-latest}
     ports:
       - "${MERGECLEAR_PORT:-8000}:8000"
     depends_on:
@@ -40,6 +40,11 @@ services:
       MERGECLEAR_DATABASE_URL: postgresql+psycopg://mergeclear:${MERGECLEAR_DB_PASSWORD}@postgres:5432/mergeclear
       MERGECLEAR_ALLOW_SIGNUP: ${MERGECLEAR_ALLOW_SIGNUP:-false}
       MERGECLEAR_COOKIE_SECURE: ${MERGECLEAR_COOKIE_SECURE:-auto}
+      # proxies whose X-Forwarded-Proto/For headers are trusted (your own nginx/load balancer; "*" only
+      # when nothing else can reach the server). docker-compose.https.yml sets this for its Caddy.
+      FORWARDED_ALLOW_IPS: ${MERGECLEAR_TRUSTED_PROXIES:-127.0.0.1}
+      MERGECLEAR_MAX_UPLOAD_MB: ${MERGECLEAR_MAX_UPLOAD_MB:-25}
+      MERGECLEAR_UPLOADS_PER_MINUTE: ${MERGECLEAR_UPLOADS_PER_MINUTE:-30}
       MERGECLEAR_WORKERS: ${MERGECLEAR_WORKERS:-2}
       MERGECLEAR_LLM: ${MERGECLEAR_LLM:-off}
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434/api/generate}
@@ -48,7 +53,7 @@ services:
 
   # extra background workers (documenting uploads is the slow part with an LLM)
   worker:
-    image: mergeclear/server:${MERGECLEAR_VERSION:-latest}
+    image: ${MERGECLEAR_SERVER_IMAGE:-ghcr.io/manojvihari/mergeclear-server}:${MERGECLEAR_VERSION:-latest}
     profiles: [workers]
     depends_on:
       postgres:

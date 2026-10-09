@@ -30,9 +30,12 @@ multi-module builds); Python FastAPI at a basic level.
 ## Quick start: the CLI
 
 ```bash
-# not on PyPI yet: install from this repository
-pipx install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+# a released version, straight from GitHub (pin the tag: v0.3.0, ...)
+pipx install "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"
+# or the wheel attached to the GitHub release
+pipx install https://github.com/ManojVihari/RepoPilot/releases/download/v0.3.0/mergeclear-0.3.0-py3-none-any.whl
 # or, from a checkout:  pipx install ./scanner
+# (once it is on PyPI: pipx install mergeclear==0.3.0)
 
 cd ~/code/my-service
 mergeclear check --base origin/main        # compare this checkout with main
@@ -116,7 +119,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 2 }
-      - run: pipx install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+      - run: pipx install "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"
       - run: mergeclear scan --project payments-service --commit ${{ github.sha }} --branch main --push --wait
         env:
           MERGECLEAR_SERVER: ${{ secrets.MERGECLEAR_SERVER }}
@@ -129,7 +132,7 @@ mergeclear-upload:
   image: python:3.12
   rules: [{ if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH' }]
   script:
-    - pip install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+    - pip install "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"
     - mergeclear scan --project payments-service --commit $CI_COMMIT_SHA --branch $CI_COMMIT_BRANCH --push --wait
 ```
 
@@ -142,7 +145,7 @@ stage('Mergeclear') {
     MERGECLEAR_API_KEY = credentials('mergeclear-api-key')
   }
   steps {
-    sh 'pip install --user "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"'
+    sh 'pip install --user "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"'
     sh '~/.local/bin/mergeclear scan --project payments-service --commit "$GIT_COMMIT" --branch main --push --wait'
   }
 }
@@ -157,7 +160,7 @@ enough history for the base ref to exist.
 
 **Any CI / shell**
 ```bash
-pip install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+pip install "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"
 git fetch origin main
 mergeclear check --base origin/main --format markdown --out mergeclear.md
 ```
@@ -166,7 +169,7 @@ mergeclear check --base origin/main --format markdown --out mergeclear.md
 ```yaml
 - uses: actions/checkout@v4
   with: { fetch-depth: 0 }
-- run: pipx install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+- run: pipx install "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"
 - run: mergeclear check --base origin/${{ github.base_ref }} --format markdown --out mergeclear.md
 ```
 
@@ -177,7 +180,7 @@ mergeclear:
   variables: { GIT_DEPTH: 0 }
   rules: [{ if: '$CI_PIPELINE_SOURCE == "merge_request_event"' }]
   script:
-    - pip install "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"
+    - pip install "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"
     - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
     - mergeclear check --base origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME --format markdown --out mergeclear.md
   artifacts: { paths: [mergeclear.md], when: always }
@@ -187,7 +190,7 @@ mergeclear:
 ```groovy
 stage('Mergeclear') {
   steps {
-    sh 'pip install --user "git+https://github.com/ManojVihari/RepoPilot.git#subdirectory=scanner"'
+    sh 'pip install --user "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"'
     sh 'git fetch origin main && ~/.local/bin/mergeclear check --base origin/main'
   }
 }
@@ -205,12 +208,14 @@ MERGECLEAR_SERVER=https://mergeclear.internal MERGECLEAR_API_KEY=... \
   mergeclear scan --project payments-service --branch main --push --wait
 ```
 
-**No Python on the build machine?** Use the container (the repository is
+**No Python on the build machine?** Use the released container (the repository is
 mounted at `/repo`):
 ```bash
-docker build -t mergeclear/scanner scanner/
-docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" mergeclear/scanner check --base origin/main
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" ghcr.io/manojvihari/mergeclear-scanner:0.3.0 check --base origin/main
+docker run --rm -v "$PWD:/repo" -e MERGECLEAR_SERVER -e MERGECLEAR_API_KEY \
+  ghcr.io/manojvihari/mergeclear-scanner:0.3.0 scan --project payments-service --push --wait
 ```
+(or build it yourself: `docker build -t mergeclear/scanner scanner/`)
 
 ---
 
@@ -219,10 +224,13 @@ docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/repo" mergeclear/scanner check 
 ### With Docker Compose
 
 ```bash
-cp .env.example .env            # set MERGECLEAR_DB_PASSWORD (openssl rand -hex 24)
-docker compose up -d            # Postgres + server on http://localhost:8000
+cp .env.example .env            # set MERGECLEAR_DB_PASSWORD (openssl rand -hex 24) and pin MERGECLEAR_VERSION
+docker compose up -d            # Postgres + server (ghcr.io/manojvihari/mergeclear-server) on http://localhost:8000
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d   # production: + HTTPS (below)
 docker compose --profile llm up -d                          # optional: + Ollama (MERGECLEAR_LLM=on in .env)
 docker compose --profile workers up -d --scale worker=3     # optional: more job workers
+# build the server from this checkout instead of pulling the released image:
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 What runs:
@@ -284,6 +292,64 @@ assigned under a per-API lock, so concurrent pipelines never collide. The
 dashboard shows uploads in progress and recent failures; `mergeclear scan --push
 --wait` blocks until the upload is documented. Job status: `GET /api/jobs`,
 `GET /api/jobs/{id}`.
+
+**HTTPS.** Run the server behind TLS in production: sign-in cookies and API keys
+travel with every request. The bundled option is [Caddy](https://caddyserver.com),
+which gets and renews a Let's Encrypt certificate by itself:
+
+```bash
+# .env: MERGECLEAR_DOMAIN=mergeclear.example.com   (DNS A/AAAA record -> this host; ports 80 and 443 open)
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+```
+
+HTTP redirects to HTTPS, HSTS is on, session cookies are always `Secure`, and the
+server's own port is bound to `127.0.0.1` only (for administration on the host).
+Certificates are kept in the `caddy-data` volume. For an internal name
+(`MERGECLEAR_DOMAIN=mergeclear.corp.local`) Caddy issues a certificate from its own
+CA; give scanners that CA (`REQUESTS_CA_BUNDLE=/path/to/root.crt`, copied from
+`docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .`) or put
+your company certificate in `deploy/Caddyfile` (`tls cert.pem key.pem`).
+
+Already have nginx, Traefik or a cloud load balancer? Proxy to port 8000 and forward
+the scheme, then tell the server to trust that proxy (`.env`):
+`MERGECLEAR_TRUSTED_PROXIES=<proxy IP>` and `MERGECLEAR_COOKIE_SECURE=true`.
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    client_max_body_size 30m;
+}
+```
+
+**Backups.** All data is in Postgres. `scripts/backup.sh` writes a compressed,
+verified dump (`pg_dump`) to `backups/` and keeps the newest 14
+(`MERGECLEAR_BACKUP_KEEP`); `scripts/restore.sh FILE` stops the server, replaces the
+database with the dump and starts it again (an older backup is migrated on start).
+
+```bash
+scripts/backup.sh                       # now; or from cron on the Docker host:
+# 15 2 * * *  cd /opt/mergeclear && scripts/backup.sh /mnt/backups >> /mnt/backups/backup.log 2>&1
+scripts/restore.sh backups/mergeclear-20261009-021500.dump
+```
+
+Copy the backup folder off the machine (object storage, another host), and try a
+restore now and then: the smoke test does a full backup → wipe → restore on every CI run.
+With an external Postgres (`MERGECLEAR_DATABASE_URL`), use its own backups or
+`pg_dump --format custom`. The SQLite default (local runs) is one file:
+`sqlite3 server/database/mergeclear.db ".backup mergeclear-backup.db"`.
+
+**Limits.** A broken pipeline must not take the server down:
+
+| Setting (`.env`) | Default | Effect |
+|---|---|---|
+| `MERGECLEAR_MAX_UPLOAD_MB` | 25 | larger request bodies get `413` (the scanner suggests `--commit` / `--since`) |
+| `MERGECLEAR_UPLOADS_PER_MINUTE` | 30 | uploads per account per minute (per server process); more get `429` with `Retry-After`, and the scanner waits and retries up to 3 times |
+
+`0` turns either off. Signing in is throttled separately (an account locks for 15
+minutes after repeated failures).
 
 Building inside a restricted network:
 
@@ -384,8 +450,38 @@ The server applies pending migrations when it starts (once, under a lock, even w
 workers); `python -m app.manage migrate` does it by hand. A test fails when the models and
 the migrations disagree. Databases created before migrations existed are adopted automatically.
 
-**CI** (`.github/workflows/ci.yml`) runs on every pull request: lint and lock-file check,
-both test suites on Python 3.10 and 3.12 against SQLite and Postgres, a dependency audit
-(also weekly), and the Docker smoke test.
+**CI** (`.github/workflows/ci.yml`) runs on every pull request and push to master: lint,
+lock-file check and a package build, both test suites on Python 3.10 and 3.12 against SQLite
+and Postgres, a dependency audit (also weekly), and the Docker smoke test.
+
+### Releasing
+
+The version lives in one place, `scanner/mergeclear/__init__.py` (the scanner package,
+the server's `/healthz` and both images report it). To release:
+
+1. Bump `__version__`, add a `## [X.Y.Z]` section to `CHANGELOG.md`, merge to master.
+2. Tag the merge commit and push the tag:
+   ```bash
+   git tag v0.3.0 && git push origin v0.3.0
+   ```
+   `.github/workflows/release.yml` checks the tag against the version and changelog,
+   builds and checks the PyPI files, runs the end-to-end smoke test, pushes
+   `ghcr.io/manojvihari/mergeclear-server` and `-scanner` (`0.3.0`, `0.3`, `latest`;
+   amd64 + arm64) and creates the GitHub release with the wheel and sdist attached.
+3. **First release only:** on GitHub, open each package under *Your profile → Packages →
+   mergeclear-server / mergeclear-scanner → Package settings* and set *visibility: public*
+   (GitHub creates them private), so `docker pull` works without a login.
+4. **PyPI (by hand):** download `dist/` from the release (or run `scripts/build_dist.sh`
+   on the tagged commit) and upload it with an API token from pypi.org
+   (*Account settings → API tokens*):
+   ```bash
+   gh release download v0.3.0 --dir dist      # or: scripts/build_dist.sh
+   python -m twine upload dist/*              # user: __token__   password: pypi-...
+   ```
+   Try it on TestPyPI first if you like: `twine upload --repository testpypi dist/*`.
+   The name `mergeclear` was still free on PyPI when this was written.
+
+Versions follow [semantic versioning](https://semver.org). Keep the scanner and server
+on the same version where you can; newer servers keep accepting reports from older scanners.
 
 Licensed under the Apache License 2.0.

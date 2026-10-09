@@ -215,3 +215,4 @@ __marimo__/
 *.db-shm
 server/database/qa_plans/
 server/database/architecture/
+backups/

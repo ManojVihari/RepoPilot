@@ -10,3 +10,5 @@ server/database
 server/tests
 scanner/tests
 scripts
+backups/
+dist/
