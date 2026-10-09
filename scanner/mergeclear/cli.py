@@ -24,6 +24,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 from mergeclear import __version__
@@ -139,16 +140,45 @@ def require_upload_settings(server, token):
         raise CliError("uploading needs " + " and ".join(missing))
 
 
+UPLOAD_RETRIES = 3          # on 429, waiting as long as the server asks (at most MAX_RETRY_WAIT each)
+MAX_RETRY_WAIT = 120
+
+
+def _retry_after(response) -> int:
+    try:
+        return min(MAX_RETRY_WAIT, max(1, int(response.headers.get("Retry-After", "10"))))
+    except ValueError:
+        return 10
+
+
+def _error_text(response) -> str:
+    try:
+        return response.json().get("error") or response.text[:300]
+    except (ValueError, AttributeError):
+        return response.text[:300]
+
+
 def push_report(report: dict, server: str, token: str = None) -> dict:
     import requests
 
     require_upload_settings(server, token)
     headers = {"Authorization": f"Bearer {token}"}
     url = server.rstrip("/") + "/analyze"
-    try:
-        response = requests.post(url, json=report, headers=headers, timeout=120)
-    except requests.RequestException as e:
-        raise CliError(f"could not reach {url}: {e}")
+    for attempt in range(UPLOAD_RETRIES + 1):
+        try:
+            response = requests.post(url, json=report, headers=headers, timeout=120)
+        except requests.RequestException as e:
+            raise CliError(f"could not reach {url}: {e}")
+        if response.status_code != 429 or attempt == UPLOAD_RETRIES:
+            break
+        wait = _retry_after(response)
+        logger.warning("%s: too many uploads right now, retrying in %d s", url, wait)
+        time.sleep(wait)
+    if response.status_code == 429:
+        raise CliError(f"{url} is limiting uploads from this account (429): {_error_text(response)}")
+    if response.status_code == 413:
+        raise CliError(f"{url} refused the report as too large (413): {_error_text(response)}. "
+                       "Scan less (--commit / --since) or raise MERGECLEAR_MAX_UPLOAD_MB on the server")
     if response.status_code == 401:
         raise CliError(f"{url} did not accept the API key (401): it is unknown or revoked; create one under "
                        "Settings → API keys on the server and set MERGECLEAR_API_KEY")
@@ -157,11 +187,7 @@ def push_report(report: dict, server: str, token: str = None) -> dict:
     if response.status_code == 503:
         raise CliError(f"{url} is not set up yet (503): open it in a browser and create the admin account")
     if response.status_code == 400:
-        try:
-            reason = response.json().get("error") or response.text[:300]
-        except ValueError:
-            reason = response.text[:300]
-        raise CliError(f"{url} refused the upload: {reason}")
+        raise CliError(f"{url} refused the upload: {_error_text(response)}")
     if not response.ok:
         raise CliError(f"{url} answered {response.status_code}: {response.text[:300]}")
     return response.json() if response.content else {}
@@ -170,8 +196,6 @@ def push_report(report: dict, server: str, token: str = None) -> dict:
 def wait_for_job(server: str, answer: dict, token: str = None, timeout: float = 600, poll: float = 2.0,
                  sleep=None) -> dict:
     """Poll the server until the queued upload is documented. Raises CliError when it fails or times out."""
-    import time
-
     import requests
 
     sleep = sleep or time.sleep

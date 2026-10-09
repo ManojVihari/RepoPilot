@@ -7,12 +7,12 @@ It only talks to git and the file system, so it runs the same on a laptop, in
 any CI system, in a git hook or a cron job.
 
 ```bash
-pipx install ./scanner                                   # from this repository (not on PyPI yet)
+pipx install "git+https://github.com/ManojVihari/RepoPilot.git@v0.3.0#subdirectory=scanner"   # or: pipx install ./scanner
 
 mergeclear check --base origin/main                      # this checkout vs main: verdict + exit code
 mergeclear scan --out report.json                        # every endpoint of the current folder
 mergeclear scan --since origin/main --out changes.json   # only endpoints touched since a ref
-mergeclear scan --push https://mergeclear.internal       # send to a Mergeclear server (MERGECLEAR_TOKEN)
+mergeclear scan --project shop --push https://mergeclear.internal   # send to a server (MERGECLEAR_API_KEY)
 mergeclear push report.json --server https://...         # upload a saved report
 mergeclear diff base.json head.json --format markdown    # compare two reports
 mergeclear check head.json --against base.json --fail-on review
@@ -36,7 +36,7 @@ without a running server.
 ```jsonc
 {
   "scanner_version": "2.0",
-  "scanner": { "name": "mergeclear", "version": "0.2.0" },
+  "scanner": { "name": "mergeclear", "version": "0.3.0" },
   "repository": "shop",
   "commit": "abc123...",
   "branch": "main",                // null on detached checkouts unless --branch is given

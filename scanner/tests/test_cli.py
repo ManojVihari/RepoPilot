@@ -332,3 +332,35 @@ def test_the_servers_reason_is_shown_when_it_refuses_an_upload(shop, tmp_path, m
     monkeypatch.setenv("MERGECLEAR_API_KEY", "k")
     assert run("scan", shop, "--push", "http://mc") == cli.EXIT_ERROR
     assert "refused the upload: no project name" in capsys.readouterr().err
+
+
+def test_uploads_wait_and_retry_when_the_server_limits_them(shop, monkeypatch, capsys):
+    import time
+    import requests
+
+    class Answer:
+        content, text = b"x", "x"
+
+        def __init__(self, status, headers=None, data=None):
+            self.status_code, self.ok, self.headers, self.data = status, status < 400, headers or {}, data or {}
+
+        def json(self):
+            return self.data
+
+    waits = []
+    monkeypatch.setattr(time, "sleep", waits.append)
+    monkeypatch.setenv("MERGECLEAR_API_KEY", "k")
+    answers = [Answer(429, {"Retry-After": "7"}), Answer(429, {"Retry-After": "9999"}),
+               Answer(202, data={"status": "queued", "project": "shop"})]
+    monkeypatch.setattr(requests, "post", lambda *a, **k: answers.pop(0))
+    assert run("scan", shop, "--push", "http://mc") == 0
+    assert waits == [7, cli.MAX_RETRY_WAIT]                         # as asked, capped
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Answer(429, {"Retry-After": "1"}, {"error": "slow down"}))
+    assert run("scan", shop, "--push", "http://mc") == cli.EXIT_ERROR
+    assert "limiting uploads" in capsys.readouterr().err
+
+    monkeypatch.setattr(requests, "post", lambda *a, **k: Answer(413, data={"error": "over the 25 MB limit"}))
+    assert run("scan", shop, "--push", "http://mc") == cli.EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "too large" in err and "--commit" in err and "25 MB" in err

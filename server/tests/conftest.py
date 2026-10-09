@@ -31,4 +31,6 @@ def database(tmp_path):
     engine = db.use(url)                      # runs the migrations, as the server does on start
     import app.main
     app.main._has_users = False          # cached per process; every test starts with an empty database
+    from app import limits
+    limits.uploads.reset()                    # user ids restart with every database
     yield engine

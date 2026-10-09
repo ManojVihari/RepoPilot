@@ -12,6 +12,7 @@ cd "$(dirname "$0")/.."
 
 export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-mergeclear-smoke}"
 export MERGECLEAR_VERSION="${MERGECLEAR_VERSION:-smoke}"
+export MERGECLEAR_SERVER_IMAGE=mergeclear/server     # the images built below, not a release
 export MERGECLEAR_PORT="${MERGECLEAR_PORT:-18000}"
 export MERGECLEAR_DB_PASSWORD="${MERGECLEAR_DB_PASSWORD:-smoke$RANDOM$RANDOM}"
 export MERGECLEAR_WORKERS=2
@@ -74,5 +75,20 @@ apis=$(curl -sf -H "Authorization: Bearer $KEY" "$SERVER/api/jobs?status=done" |
 revision=$(docker compose exec -T server python -m app.manage migrate 2>/dev/null | tr -d '\r')
 echo "$revision"
 case "$revision" in "schema at revision "*) ;; *) fail "migrations did not report a revision";; esac
+
+step "back up, lose everything, restore"
+BACKUPS="$(mktemp -d)"
+scripts/backup.sh "$BACKUPS" || fail "backup failed"
+dump=$(ls "$BACKUPS"/mergeclear-*.dump)
+docker compose down -v >/dev/null 2>&1                     # database volume gone
+docker compose up -d --no-build >/dev/null
+for _ in $(seq 60); do curl -sf "$SERVER/healthz" >/dev/null && break; sleep 2; done
+[ "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $KEY" "$SERVER/api/jobs")" = 503 ] \
+  || fail "the database was not emptied"
+scripts/restore.sh --yes "$dump" || fail "restore failed"
+for _ in $(seq 60); do curl -sf "$SERVER/healthz" >/dev/null && break; sleep 2; done
+curl -sf -H "Authorization: Bearer $KEY" "$SERVER/api/jobs?status=done" | grep -q '"repo":"smoke"' \
+  || fail "data or API key missing after restore"
+rm -rf "$BACKUPS"
 
 printf '\n\033[32mSmoke test passed.\033[0m\n'

@@ -1,0 +1,26 @@
+# HTTPS in front of the Mergeclear server (used by docker-compose.https.yml).
+# Caddy gets and renews a Let's Encrypt certificate for MERGECLEAR_DOMAIN on its
+# own: the domain's DNS must point at this host and ports 80 and 443 be reachable.
+# "localhost" (or an internal name) gets a certificate from Caddy's own local CA.
+{$MERGECLEAR_DOMAIN:localhost} {
+	encode zstd gzip
+
+	# a little above the server's own limit, so the server answers with its clearer message
+	request_body {
+		max_size {$MERGECLEAR_PROXY_MAX_BODY:30MB}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	reverse_proxy server:8000 {
+		health_uri /healthz
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
